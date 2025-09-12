@@ -163,16 +163,16 @@ const BlindsStructureModalContent = memo<Pick<TournamentData, 'speed_type'>>(({ 
 });
 BlindsStructureModalContent.displayName = 'BlindsStructureModalContent';
 
-const PayoutStructureModalContent = memo<Pick<TournamentData, 'payout_structure'>>(({ payout_structure }) => {
-  return (
-    <List key={JSON.stringify(payout_structure)}>
-      {payout_structure.map(({ percentage, position }) => (
-        <ListItem key={position} rightLabel={`${percentage}%`}>{position + 1}. Place</ListItem>
-      ))}
-    </List>
-  );
-});
-PayoutStructureModalContent.displayName = 'PayoutStructureModalContent';
+// const PayoutStructureModalContent = memo<Pick<TournamentData, 'payout_structure'>>(({ payout_structure }) => {
+//   return (
+//     <List key={JSON.stringify(payout_structure)}>
+//       {payout_structure.map(({ percentage, position }) => (
+//         <ListItem key={position} rightLabel={`${percentage}%`}>{position + 1}. Place</ListItem>
+//       ))}
+//     </List>
+//   );
+// });
+// PayoutStructureModalContent.displayName = 'PayoutStructureModalContent';
 
 const TournamentInfoContent = memo(() => {
   const { data, currencyType } = useTournament(true);
@@ -200,14 +200,14 @@ const TournamentInfoContent = memo(() => {
       >
         Blinds structure
       </ListItem>
-      <ListItem
+      {/* <ListItem
         modal={{
           title: 'Payout',
           children: <PayoutStructureModalContent {...data} />
         }}
       >
         Payout
-      </ListItem>
+      </ListItem> */}
     </List>
   )
 });

@@ -27,11 +27,13 @@ const meta: Meta<typeof TournamentLeaderboardComponent> = {
   title: "Tournament/Leaderboard",
   component: TournamentLeaderboardComponent,
   args: {
-    payoutStructure: [
-      { position: 0, percentage: 50 },
-      { position: 1, percentage: 30 },
-      { position: 2, percentage: 20 },
-    ],
+    payoutStructure: {
+      payouts: [
+        { position: 0, percentage: 50 },
+        { position: 1, percentage: 30 },
+        { position: 2, percentage: 20 },
+      ]
+    },
     prizepool: 10000000000n,
     currencyType: { Real: { ICP: null } },
     tournamentUserId: mockPrincipal(0),

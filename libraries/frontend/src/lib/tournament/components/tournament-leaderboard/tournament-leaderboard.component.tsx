@@ -1,7 +1,7 @@
 import classNames from 'classnames';
 import { memo, useCallback } from 'react';
 
-import { PayoutPercentage } from '@declarations/tournament_canister/tournament_canister.did';
+import { PayoutStructure } from '@declarations/tournament_canister/tournament_canister.did';
 import { List, LoadingSpinnerComponent } from '@zk-game-dao/ui';
 
 import {
@@ -20,13 +20,14 @@ export type LeaderboardData = {
 export const TournamentLeaderboardComponent = memo<{
   isCompleted: boolean;
   className?: string;
-  payoutStructure: PayoutPercentage[];
+  payoutStructure: PayoutStructure;
   prizepool: bigint;
   currencyType: CurrencyType;
   tournamentUserId?: Principal;
   liveLeaderboard: LeaderboardData;
   /** Eliminated players */
   leaderboard: LeaderboardData;
+  sortedUsers?: [Principal, bigint][]
 }>(({
   leaderboard,
   liveLeaderboard,
@@ -35,15 +36,36 @@ export const TournamentLeaderboardComponent = memo<{
   payoutStructure,
   prizepool,
   currencyType,
-  tournamentUserId
+  tournamentUserId,
+  sortedUsers
 }) => {
 
   const isSelf = useCallback((user_id: Principal) => tournamentUserId && IsSamePrincipal(user_id, tournamentUserId), [tournamentUserId?.toText()]);
   const getWinnings = useCallback((rank: number): bigint => {
-    const winningsPercentage = payoutStructure[rank];
+    const winningsPercentage = payoutStructure.payouts[rank];
     if (!winningsPercentage) return 0n;
     return prizepool / 100n * BigInt(winningsPercentage.percentage);
   }, [payoutStructure, prizepool]);
+
+  if (sortedUsers && sortedUsers?.length > 0)
+    return (
+      <List
+        label='Rankings'
+        className={classNames(className, 'mx-auto')}
+      >
+        {sortedUsers.map(([principal, amountWon], rank) => (
+          <TournamentLeaderboardEntry
+            key={principal.toText()}
+            rank={rank}
+            isCompleted={isCompleted}
+            currencyType={currencyType}
+            winnings={amountWon}
+            isSelf={isSelf(principal)}
+            user_id={principal}
+          />
+        ))}
+      </List>
+    )
 
   return (
     <div className='flex flex-col gap-6 relative min-h-32'>

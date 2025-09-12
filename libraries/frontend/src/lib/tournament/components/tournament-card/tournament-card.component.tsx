@@ -11,6 +11,7 @@ import { callActorMutation } from '../../../utils/call-actor-mutation';
 import { BigIntTimestampToDate, DateToBigIntTimestamp, DateToLocalDateTimeString } from '../../../utils/time';
 import { QuickJoinModal } from '../quick-join-modal.component';
 import { TournamentStatusComponent } from '../tournament-status.component';
+import { useShowPrizepool } from '../../hooks/show-prizepool';
 
 export type Props = Pick<
   TournamentData,
@@ -77,6 +78,8 @@ export const TournamentCardComponent = memo<Props>(({
   const didStart = useMemo(() => data && data.start_time < currentTime, [data?.start_time, currentTime]);
   const lateRegistrationActive = useMemo(() => didStart && data && (currentTime - data?.start_time) < data?.late_registration_duration_ns, [didStart, currentTime, data?.start_time, data?.late_registration_duration_ns]);
 
+  const showPrizepool = useShowPrizepool(data);
+
   if (!data) return null;
 
   return (
@@ -117,13 +120,15 @@ export const TournamentCardComponent = memo<Props>(({
         <ListItem rightLabel={startTimeString}>
           Starting time
         </ListItem>
-        <ListItem rightLabel={<CurrencyComponent currencyValue={data.buy_in} currencyType={data.currency} />}>
-          Buy in
-        </ListItem>
+        {!('Freeroll' in data.tournament_type) && (
+          <ListItem rightLabel={<CurrencyComponent currencyValue={data.buy_in} currencyType={data.currency} />}>
+            Buy in
+          </ListItem>
+        )}
         <ListItem rightLabel={<TournamentStatusComponent state={data.state} start_time={data.start_time} />}>
           State
         </ListItem>
-        {prizePool.data !== undefined && (
+        {showPrizepool && prizePool.data !== undefined && (
           <ListItem rightLabel={<CurrencyComponent currencyValue={prizePool.data} currencyType={data.currency} />}>
             Prize Pool
           </ListItem>

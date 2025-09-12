@@ -10,7 +10,7 @@ use intercanister_call_wrappers::{
     tournament_canister::update_player_count_tournament_wrapper,
 };
 use table::poker::game::table_functions::types::CurrencyType;
-use tournaments::tournaments::types::UserTournamentAction;
+use tournaments::tournaments::types::{TournamentId, UserTournamentAction};
 
 use crate::{BACKEND_PRINCIPAL, CURRENCY_MANAGER, RAKE_WALLET_ADDRESS_PRINCIPAL, TABLE};
 
@@ -43,50 +43,48 @@ pub fn get_canister_state() -> CanisterState {
     }
 }
 
-pub fn handle_cycle_check() {
+pub async fn handle_cycle_check() {
     let cycles = ic_cdk::api::canister_cycle_balance();
     if cycles >= MINIMUM_CYCLE_THRESHOLD {
         return;
     }
 
-    ic_cdk::futures::spawn(async {
-        let table_index_result = BACKEND_PRINCIPAL.lock();
-        let table_index = match table_index_result {
-            Ok(lock) => match *lock {
-                Some(index) => index,
-                None => {
-                    ic_cdk::println!("User not found");
-                    return; // or perform some error handling
-                }
-            },
-            Err(_) => {
-                ic_cdk::println!("Lock error occurred");
-                return; // or handle the lock error
+    let table_index_result = BACKEND_PRINCIPAL.lock();
+    let table_index = match table_index_result {
+        Ok(lock) => match *lock {
+            Some(index) => index,
+            None => {
+                ic_cdk::println!("User not found");
+                return; // or perform some error handling
             }
-        };
-
-        if let Err(e) = check_and_top_up_canister(
-            ic_cdk::api::canister_self(),
-            table_index,
-            MINIMUM_CYCLE_THRESHOLD,
-        )
-        .await
-        {
-            ic_cdk::println!("Failed to top up canister: {:?}", e);
+        },
+        Err(_) => {
+            ic_cdk::println!("Lock error occurred");
+            return; // or handle the lock error
         }
-    });
+    };
+
+    if let Err(e) = check_and_top_up_canister(
+        ic_cdk::api::canister_self(),
+        table_index,
+        MINIMUM_CYCLE_THRESHOLD,
+    )
+    .await
+    {
+        ic_cdk::println!("Failed to top up canister: {:?}", e);
+    }
 }
 
 pub fn update_player_count_tournament(user_action: UserTournamentAction) -> Result<(), TableError> {
     match &user_action {
         UserTournamentAction::Join(uid) => ic_cdk::println!(
             "User {} joined the table {}",
-            uid.to_text(),
+            uid.0.to_text(),
             ic_cdk::api::canister_self().to_text()
         ),
         UserTournamentAction::Leave(uid) => ic_cdk::println!(
             "User {} left the table {}",
-            uid.to_text(),
+            uid.0.to_text(),
             ic_cdk::api::canister_self().to_text()
         ),
     }
@@ -106,7 +104,7 @@ pub fn update_player_count_tournament(user_action: UserTournamentAction) -> Resu
     };
     ic_cdk::futures::spawn(async move {
         if let Err(e) = update_player_count_tournament_wrapper(
-            backend_principal,
+            TournamentId(backend_principal),
             ic_cdk::api::canister_self(),
             user_action,
         )
@@ -234,10 +232,10 @@ pub fn reshuffle_bytes_hash(bytes: &mut [u8], seed: u64) {
     if bytes.len() <= 1 {
         return;
     }
-    
+
     // Create indices to shuffle
     let mut indices: Vec<usize> = (0..bytes.len()).collect();
-    
+
     // Shuffle indices using hash-based approach
     for i in (1..indices.len()).rev() {
         let mut hasher = DefaultHasher::new();
@@ -247,7 +245,7 @@ pub fn reshuffle_bytes_hash(bytes: &mut [u8], seed: u64) {
         let j = (hash as usize) % (i + 1);
         indices.swap(i, j);
     }
-    
+
     // Apply the shuffle to the original bytes
     let original = bytes.to_vec();
     for (new_pos, &old_pos) in indices.iter().enumerate() {

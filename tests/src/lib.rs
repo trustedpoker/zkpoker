@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 mod basic_tests;
+// mod clans_tests;
 mod cycle_tests;
 mod deposit_tests;
 mod env;
@@ -40,6 +41,7 @@ pub struct CanisterIds {
     pub ledger: Principal,
     pub ckusdc_ledger: Principal,
     pub cycle_dispenser: Principal,
+    pub clan_index: Principal,
 }
 
 #[derive(CandidType)]
@@ -129,6 +131,13 @@ impl TestEnv {
             Some(1_000_000_000_000_000),
         );
 
+        let clan_index = create_canister(
+            &pocket_ic,
+            (),
+            wasms::CLANS_INDEX.clone(),
+            init_cycle_balance,
+        );
+
         let minting_account = AccountIdentifier::new(
             &Principal::self_authenticating("minter"),
             &DEFAULT_SUBACCOUNT,
@@ -149,6 +158,15 @@ impl TestEnv {
             &pocket_ic,
             1_000_000.0,
             user_index,
+            ledger,
+            Principal::self_authenticating("minter"),
+            true,
+        );
+
+        transfer_tokens(
+            &pocket_ic,
+            1_000_000.0,
+            tournament_index,
             ledger,
             Principal::self_authenticating("minter"),
             true,
@@ -205,6 +223,7 @@ impl TestEnv {
             ledger,
             ckusdc_ledger,
             cycle_dispenser,
+            clan_index
         };
 
         TestEnv {

@@ -1,11 +1,30 @@
 use candid::{CandidType, Decode, Encode, Principal};
+use macros::{impl_principal_traits, impl_u64_comparisons};
 use serde::{Deserialize, Serialize};
 
 use ic_stable_structures::{storable::Bound, Storable};
 use std::{borrow::Cow, collections::HashMap};
 
+use crate::admin::{AdminRole, BanType};
+
 const MAX_VALUE_SIZE: u32 = 200_000_000;
 pub const REFERRAL_PERIOD: u64 = 30 * 24 * 60 * 60 * 1_000_000_000;
+
+pub fn time() -> u64 {
+    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    {
+        ic_cdk::api::time()
+    }
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    {
+        use std::time::SystemTime;
+
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+    }
+}
 
 #[derive(Debug, Clone, Hash, Serialize, Deserialize, CandidType, PartialEq, Eq)]
 pub enum TransferType {
@@ -26,15 +45,32 @@ pub enum UserAvatar {
     Emoji(EmojiUserAvatar),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, CandidType, PartialEq, Eq, Hash, Copy)]
+pub struct WalletPrincipalId(pub Principal);
+
+#[derive(Debug, Clone, Serialize, Deserialize, CandidType, PartialEq, Eq, Hash, Copy)]
+pub struct UsersCanisterId(pub Principal);
+
+impl_principal_traits!(WalletPrincipalId);
+impl_principal_traits!(UsersCanisterId);
+
+#[derive(Debug, Clone, Serialize, Deserialize, CandidType, PartialEq, Eq, Hash, Copy)]
+#[derive(Default)]
+pub struct UserBalance(pub u64);
+
+impl_u64_comparisons!(UserBalance);
+
+
 /// The User struct is stored in memory on the user canister.
 #[derive(Debug, Clone, Serialize, Deserialize, CandidType, PartialEq, Eq)]
 pub struct User {
-    pub principal_id: Principal,
-    pub users_canister_id: Principal,
+    pub principal_id: WalletPrincipalId,
+    pub users_canister_id: UsersCanisterId,
     pub user_name: String,
-    pub balance: u64,
+    pub balance: UserBalance,
     pub address: Option<String>,
     pub avatar: Option<UserAvatar>,
+    pub created_at: Option<u64>,
     /// The tables that the user is currently active in.
     pub active_tables: Vec<Principal>,
     pub enlarge_text: Option<bool>,
@@ -45,22 +81,54 @@ pub struct User {
     experience_points_pure_poker: Option<u64>,
 
     /// Referral system fields
-    pub referrer: Option<Principal>,
-    pub referred_users: Option<HashMap<Principal, u64>>,
+    pub referrer: Option<WalletPrincipalId>,
+    pub referred_users: Option<HashMap<WalletPrincipalId, u64>>,
     pub referral_start_date: Option<u64>, // Timestamp when user was referred
+
+    /// Admin system
+    pub admin_role: Option<AdminRole>,
+    pub ban_status: Option<BanType>,
+    pub ban_history: Option<Vec<BanType>>,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        User {
+            principal_id: WalletPrincipalId(Principal::anonymous()),
+            users_canister_id: UsersCanisterId(Principal::anonymous()),
+            user_name: String::new(),
+            balance: UserBalance(0),
+            address: None,
+            avatar: None,
+            created_at: Some(time()),
+            active_tables: Vec::new(),
+            enlarge_text: None,
+            volume_level: None,
+            eth_wallet_address: None,
+            experience_points: Some(0),
+            is_verified: None,
+            experience_points_pure_poker: Some(0),
+            referrer: None,
+            referred_users: Some(HashMap::new()),
+            referral_start_date: None,
+            admin_role: None,
+            ban_status: None,
+            ban_history: None,
+        }
+    }
 }
 
 impl User {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        principal_id: Principal,
-        users_canister_id: Principal,
+        principal_id: WalletPrincipalId,
+        users_canister_id: UsersCanisterId,
         user_name: String,
-        balance: u64,
+        balance: UserBalance,
         address: Option<String>,
         avatar: Option<UserAvatar>,
         eth_wallet_address: Option<String>,
-        referrer: Option<Principal>,
+        referrer: Option<WalletPrincipalId>,
         referral_start_date: Option<u64>,
     ) -> User {
         User {
@@ -70,6 +138,7 @@ impl User {
             address,
             principal_id,
             avatar,
+            created_at: Some(time()),
             active_tables: Vec::new(),
             enlarge_text: None,
             volume_level: None,
@@ -80,6 +149,9 @@ impl User {
             referrer,
             referred_users: Some(HashMap::new()),
             referral_start_date,
+            admin_role: None,
+            ban_status: None,
+            ban_history: None,
         }
     }
 
@@ -107,7 +179,7 @@ impl User {
     ///
     /// - `balance` - The balance to set.
     pub fn set_balance(&mut self, balance: u64) {
-        self.balance = balance;
+        self.balance = UserBalance(balance);
     }
 
     /// Set the address of the user.
@@ -125,7 +197,7 @@ impl User {
     ///
     /// - `principal_id` - The principal id to set.
     pub fn set_principal_id(&mut self, principal_id: Principal) {
-        self.principal_id = principal_id;
+        self.principal_id = WalletPrincipalId(principal_id);
     }
 
     /// Deposit `amount` into the user's balance.
@@ -134,7 +206,7 @@ impl User {
     ///
     /// - `amount` - The amount to deposit.
     pub fn deposit(&mut self, amount: u64) {
-        self.balance += amount;
+        self.balance.0 += amount;
     }
 
     /// Withdraw `amount` from the user's balance.
@@ -143,7 +215,7 @@ impl User {
     ///
     /// - `amount` - The amount to withdraw.
     pub fn withdraw(&mut self, amount: u64) {
-        self.balance -= amount;
+        self.balance.0 -= amount;
     }
 
     /// Gets the user's level
@@ -194,7 +266,9 @@ impl User {
     ///
     /// - `experience_points` - The experience points to add.
     pub fn add_experience_points(&mut self, experience_points: u64) {
-        self.experience_points = Some(self.experience_points.unwrap_or(0) + experience_points);
+        if self.can_gain_xp() {
+            self.experience_points = Some(self.experience_points.unwrap_or(0) + experience_points);
+        }
     }
 
     /// Add btc experience points to the user.
@@ -203,8 +277,10 @@ impl User {
     ///
     /// - `experience_points` - The experience points to add.
     pub fn add_pure_poker_experience_points(&mut self, experience_points: u64) {
-        self.experience_points_pure_poker =
-            Some(self.experience_points_pure_poker.unwrap_or(0) + experience_points);
+        if self.can_gain_xp() {
+            self.experience_points_pure_poker =
+                Some(self.experience_points_pure_poker.unwrap_or(0) + experience_points);
+        }
     }
 
     pub fn get_referral_tier(&self) -> u8 {
@@ -235,9 +311,9 @@ impl User {
         }
     }
 
-    pub fn add_referred_user(&mut self, user_id: Principal) {
+    pub fn add_referred_user(&mut self, user_id: WalletPrincipalId) {
         let referred_users = self.referred_users.get_or_insert_with(HashMap::new);
-        let timestamp = ic_cdk::api::time();
+        let timestamp = time();
         referred_users.entry(user_id).or_insert(timestamp);
 
         // Check for all referred users and remove those who are no longer within the referral period
@@ -246,7 +322,7 @@ impl User {
 
     pub fn is_within_referral_period(&self) -> bool {
         if let Some(start_date) = self.referral_start_date {
-            let now = ic_cdk::api::time();
+            let now = time();
             let one_month_nanos = REFERRAL_PERIOD;
             now - start_date <= one_month_nanos
         } else {
@@ -280,11 +356,12 @@ impl Storable for User {
             ic_cdk::println!("Deserialization error: {:?}", e);
             User {
                 user_name: String::new(),
-                balance: 0,
+                balance: UserBalance(0),
                 address: None,
-                principal_id: Principal::anonymous(),
-                users_canister_id: Principal::anonymous(),
+                principal_id: WalletPrincipalId(Principal::anonymous()),
+                users_canister_id: UsersCanisterId(Principal::anonymous()),
                 avatar: None,
+                created_at: Some(time()),
                 active_tables: Vec::new(),
                 enlarge_text: None,
                 volume_level: None,
@@ -295,6 +372,9 @@ impl Storable for User {
                 referrer: None,
                 referred_users: Some(HashMap::new()),
                 referral_start_date: None,
+                admin_role: None,
+                ban_status: None,
+                ban_history: None,
             }
         })
     }

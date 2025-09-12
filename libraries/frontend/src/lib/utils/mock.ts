@@ -25,6 +25,10 @@ export const mockUser = (u: Partial<User>): User => ({
   referrer: [],
   referred_users: [],
   referral_start_date: [],
+  created_at: [],
+  ban_history: [],
+  ban_status: [],
+  admin_role: [],
   ...u,
 });
 

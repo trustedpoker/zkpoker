@@ -8,9 +8,7 @@ use tournaments::tournaments::{
         AddonOptions, BuyInOptions, RebuyOptions, ReentryOptions, TournamentSizeType,
         TournamentType,
     },
-    types::{
-        NewTournament, NewTournamentSpeedType, PayoutPercentage, TournamentData, TournamentState,
-    },
+    types::{NewTournament, NewTournamentSpeedType, TournamentData, TournamentId, TournamentState},
 };
 
 use crate::{utils::get_current_time_ns, wasms, TestEnv};
@@ -45,13 +43,10 @@ fn create_test_tournament_config() -> NewTournament {
         name: "Test Tournament".to_string(),
         description: "Test Tournament Description".to_string(),
         buy_in: 1e8 as u64, // 0.01 ICP
+        guaranteed_prize_pool: None,
         hero_picture: "".to_string(),
         max_players: 8,
         late_registration_duration_ns: 0,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
         start_time: get_current_time_ns() + 3600000000000, // 1 hour in the future
         starting_chips: 1000,
         speed_type: NewTournamentSpeedType::Regular(200),
@@ -135,12 +130,12 @@ impl TestEnv {
     // Method to update tournament state
     pub fn update_tournament_state(
         &self,
-        tournament_id: Principal,
+        tournament_id: TournamentId,
         new_state: TournamentState,
     ) -> Result<(), TournamentIndexError> {
         let result = self.pocket_ic.update_call(
             self.canister_ids.tournament_index,
-            tournament_id,
+            tournament_id.0,
             "update_tournament_state",
             encode_args((tournament_id, new_state)).unwrap(),
         );
@@ -163,7 +158,7 @@ fn test_tournament_index_upgrade_persistence() {
     let table_config = create_test_table_config();
 
     let tournament_id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create tournament");
 
     // 3. Verify initial state
@@ -181,7 +176,7 @@ fn test_tournament_index_upgrade_persistence() {
 
     // 6. Create another tournament to ensure the canister is still functional
     let tournament_id2 = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create second tournament");
 
     // 7. Verify updated state
@@ -203,15 +198,15 @@ fn test_tournament_index_complex_state_persistence() {
 
     // Create 3 tournaments
     let tournament_id1 = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create first tournament");
 
     let tournament_id2 = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create second tournament");
 
     let tournament_id3 = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create third tournament");
 
     // 3. Update states
@@ -263,16 +258,16 @@ fn test_tournament_canister_basic_persistence() {
     let table_config = create_test_table_config();
 
     let tournament_id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create tournament");
 
     // 3. Add players to the tournament
     let (user1, user1_id) = test_env.create_test_user("user1tournament");
     let (user2, user2_id) = test_env.create_test_user("user2tournament");
 
-    test_env.transfer_approve_tokens_for_testing(tournament_id, user1_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(tournament_id.0, user1_id, 1000.0, true);
 
-    test_env.transfer_approve_tokens_for_testing(tournament_id, user2_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(tournament_id.0, user2_id, 1000.0, true);
 
     // Join tournament
     test_env
@@ -306,7 +301,7 @@ fn test_tournament_canister_basic_persistence() {
 
     // 7. Verify canister is still functional by adding another player
     let (user3, user3_id) = test_env.create_test_user("user3tournament");
-    test_env.transfer_approve_tokens_for_testing(tournament_id, user3_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(tournament_id.0, user3_id, 1000.0, true);
 
     test_env
         .join_tournament(tournament_id, user3, user3_id)
@@ -332,16 +327,16 @@ fn test_tournament_state_transition_across_upgrade() {
     let table_config = create_test_table_config();
 
     let tournament_id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create tournament");
 
     // 3. Add players
     let (user1, user1_id) = test_env.create_test_user("user1phases");
     let (user2, user2_id) = test_env.create_test_user("user2phases");
 
-    test_env.transfer_approve_tokens_for_testing(tournament_id, user1_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(tournament_id.0, user1_id, 1000.0, true);
 
-    test_env.transfer_approve_tokens_for_testing(tournament_id, user2_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(tournament_id.0, user2_id, 1000.0, true);
 
     // Join tournament
     test_env
@@ -353,7 +348,7 @@ fn test_tournament_state_transition_across_upgrade() {
         .expect("Failed to join tournament for user2");
 
     // 4. Upgrade the canister while in registration state
-    upgrade_tournament_canister(&test_env, tournament_id);
+    upgrade_tournament_canister(&test_env, tournament_id.0);
 
     // Tick a few times to ensure the heartbeat runs
     test_env.pocket_ic.advance_time(Duration::from_secs(60000));
@@ -387,7 +382,7 @@ fn test_tournament_index_atomic_updates() {
     let tournament_ids: Vec<_> = (0..3)
         .map(|_| {
             test_env
-                .create_tournament(&tournament_config, &table_config)
+                .create_tournament(None, &tournament_config, &table_config)
                 .expect("Failed to create tournament")
         })
         .collect();

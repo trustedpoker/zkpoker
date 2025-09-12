@@ -1,7 +1,7 @@
 import classNames from 'classnames';
 import { memo, useEffect, useMemo, useState } from 'react';
 
-import { createActor as createTableActor } from '@declarations/table_canister';
+import { createActor, createActor as createTableActor } from '@declarations/table_canister';
 import { table_index } from '@declarations/table_index';
 import {
   CurrencyType, FilterOptions, PublicTable, TableConfig
@@ -105,7 +105,7 @@ export const LobbyPage = memo(() => {
   const userTables = useQueries({
     queries: user?.active_tables?.map((id) => ({
       queryKey: Queries.table.key({ id }),
-      queryFn: async (): Promise<PublicTable> => await callActorMutation(table_index, "get_table", id),
+      queryFn: async (): Promise<PublicTable> => await callActorMutation(createActor(id), "get_table"),
       refetchInterval: 10000,
     })) || [],
     combine: (result) =>
@@ -115,7 +115,7 @@ export const LobbyPage = memo(() => {
   const publicTables = useQueries({
     queries: publicTableIDs?.map(([id]) => ({
       queryKey: Queries.table.key({ id }),
-      queryFn: async (): Promise<PublicTable> => await callActorMutation(table_index, "get_table", id),
+      queryFn: async (): Promise<PublicTable> => await callActorMutation(createActor(id), "get_table"),
       refetchInterval: 10000,
     })) || [],
     combine: (result) =>

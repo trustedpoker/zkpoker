@@ -17,6 +17,7 @@ import { useGetUsersCanisterFromUserId } from './users-canisters.context';
 declare global {
   interface Window {
     getUserPrincipal?: () => string | undefined;
+    getUsersCanisterPrincipal?: () => string | undefined;
   }
 }
 
@@ -96,7 +97,8 @@ export const ProvideUser = memo<{ children: ReactNode }>(({ children }) => {
   useEffect(() => {
     const principal = authData?.principal.toText();
     window.getUserPrincipal = () => principal;
-  }, [authData?.principal.toText()]);
+    window.getUsersCanisterPrincipal = () => user?.users_canister_id.toText();
+  }, [authData?.principal.toText(), user?.users_canister_id.toText()]);
 
   return (
     <RawUserContextProvider

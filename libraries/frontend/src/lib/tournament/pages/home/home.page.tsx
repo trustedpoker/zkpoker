@@ -285,19 +285,6 @@ const Participation = memo(() => {
 });
 Participation.displayName = 'ParticipationComponent';
 
-const PayoutStructure = memo<Pick<TournamentData, 'payout_structure'>>(({ payout_structure }) => {
-  return (
-    <ItemContainer>
-      <List label="Payout structure">
-        {payout_structure.map(({ percentage, position }) => (
-          <ListItem key={position} rightLabel={`${percentage}%`}>{position + 1}. Place</ListItem>
-        ))}
-      </List>
-    </ItemContainer>
-  );
-});
-PayoutStructure.displayName = 'PayoutStructureComponent';
-
 const Players = memo(() => {
   const { data } = useTournament(true);
 
@@ -360,7 +347,7 @@ export const TournamentInfoPage = memo(() => {
         {type.rebuy.enabled && <Rebuy {...type.rebuy} currencyType={currencyType} />}
         {type.reentry.enabled && <Reentry {...type.reentry} currencyType={currencyType} />}
         <Players />
-        <PayoutStructure payout_structure={data.payout_structure} />
+        {/* <PayoutStructure payout_structure={data.payout_structure} /> */}
       </div>
     </div>
   );

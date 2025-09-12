@@ -14,10 +14,10 @@ use errors::{canister_management_error::CanisterManagementError, user_error::Use
 use ic_cdk::management_canister::{canister_status, CanisterStatusArgs};
 use ic_ledger_types::{AccountIdentifier, Subaccount, DEFAULT_SUBACCOUNT};
 use intercanister_call_wrappers::users_canister::{
-    create_user_wrapper, get_user_wrapper, update_user_wrapper,
+    create_user_wrapper, get_user_by_username_wrapper, get_user_wrapper, update_user_wrapper
 };
 use lazy_static::lazy_static;
-use user::user::{User, UserAvatar};
+use user::user::{User, UserAvatar, UsersCanisterId, WalletPrincipalId};
 use user_index::{get_position_in_leaderboard, UserIndex};
 
 use std::sync::Mutex;
@@ -71,17 +71,19 @@ lazy_static! {
             .unwrap(),
         Principal::from_text("uyxh5-bi3za-gxbfs-op3gj-ere73-a6jhv-5jky3-zawef-b5r2s-k26un-sae")
             .unwrap(),
+        Principal::from_text("w3kjy-pitqg-dvab7-tb57q-63gnd-di4vo-loiiy-s6zm2-gqcmw-ixliz-aae").unwrap(),
     ];
     static ref USER_CANISTER_WASM: &'static [u8] =
         include_bytes!("../../../target/wasm32-unknown-unknown/release/users_canister.wasm");
-    static ref LEADERBOARD_CACHE: Mutex<Option<Vec<(Principal, u64)>>> = Mutex::new(None);
+    static ref LEADERBOARD_CACHE: Mutex<Option<Vec<(WalletPrincipalId, u64)>>> = Mutex::new(None);
     static ref LEADERBOARD_CACHE_TIMESTAMP: Mutex<Option<u64>> = Mutex::new(None);
-    static ref PURE_POKER_LEADERBOARD_CACHE: Mutex<Option<Vec<(Principal, u64)>>> =
+    static ref PURE_POKER_LEADERBOARD_CACHE: Mutex<Option<Vec<(WalletPrincipalId, u64)>>> =
         Mutex::new(None);
     static ref PURE_POKER_LEADERBOARD_CACHE_TIMESTAMP: Mutex<Option<u64>> = Mutex::new(None);
-    static ref VERIFIED_LEADERBOARD_CACHE: Mutex<Option<Vec<(Principal, u64)>>> = Mutex::new(None);
+    static ref VERIFIED_LEADERBOARD_CACHE: Mutex<Option<Vec<(WalletPrincipalId, u64)>>> =
+        Mutex::new(None);
     static ref VERIFIED_LEADERBOARD_CACHE_TIMESTAMP: Mutex<Option<u64>> = Mutex::new(None);
-    static ref VERIFIED_PURE_POKER_LEADERBOARD_CACHE: Mutex<Option<Vec<(Principal, u64)>>> =
+    static ref VERIFIED_PURE_POKER_LEADERBOARD_CACHE: Mutex<Option<Vec<(WalletPrincipalId, u64)>>> =
         Mutex::new(None);
     static ref VERIFIED_PURE_POKER_LEADERBOARD_CACHE_TIMESTAMP: Mutex<Option<u64>> =
         Mutex::new(None);
@@ -129,9 +131,9 @@ fn ping() -> String {
 async fn create_user(
     user_name: String,
     address: Option<String>,
-    principal_id: Principal,
+    principal_id: WalletPrincipalId,
     avatar: Option<UserAvatar>,
-    referrer: Option<Principal>,
+    referrer: Option<WalletPrincipalId>,
 ) -> Result<User, UserError> {
     handle_cycle_check().await?;
     if user_name.is_empty() {
@@ -146,6 +148,10 @@ async fn create_user(
             .map_err(|_| UserError::LockError)?
             .clone()
     };
+
+    if user_index_state.does_user_name_exist(&user_name).await {
+        return Err(UserError::UserAlreadyExists);
+    }
 
     // Check if user already exists
     if user_index_state
@@ -162,9 +168,10 @@ async fn create_user(
             // No available canister, create a new one
             let controller_principals = CONTROLLER_PRINCIPALS.clone();
             let wasm_module = USER_CANISTER_WASM.to_vec();
-            let new_canister = create_canister_wrapper(controller_principals, None).await?;
+            let new_canister = create_canister_wrapper(controller_principals, Some(3_000_000_000_000)).await?;
             install_wasm_code(new_canister, wasm_module).await?;
 
+            let new_canister = UsersCanisterId(new_canister);
             // Initialize the count for this new canister
             user_index_state.canister_user_count.insert(new_canister, 0);
 
@@ -205,7 +212,9 @@ async fn create_user(
 }
 
 #[ic_cdk::update]
-async fn get_users_canister_principal_by_id(user_id: Principal) -> Result<Principal, UserError> {
+async fn get_users_canister_principal_by_id(
+    user_id: WalletPrincipalId,
+) -> Result<UsersCanisterId, UserError> {
     let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
 
     match user_index_state.get_users_canister_principal(user_id) {
@@ -216,15 +225,15 @@ async fn get_users_canister_principal_by_id(user_id: Principal) -> Result<Princi
 
 #[ic_cdk::update]
 async fn update_user(
-    user_canister_principal_id: Principal,
+    user_canister_principal_id: UsersCanisterId,
     user_name: Option<String>,
     balance: Option<u64>,
     address: Option<String>,
-    principal_id: Principal,
+    principal_id: WalletPrincipalId,
     wallet_principal_id: Option<String>,
     avatar: Option<UserAvatar>,
 ) -> Result<User, UserError> {
-    validate_caller(vec![principal_id]);
+    validate_caller(vec![principal_id.0]);
     handle_cycle_check().await?;
 
     let res = update_user_wrapper(
@@ -242,7 +251,7 @@ async fn update_user(
 }
 
 #[ic_cdk::update]
-async fn get_user(user_id: Principal) -> Result<User, UserError> {
+async fn get_user(user_id: WalletPrincipalId) -> Result<User, UserError> {
     handle_cycle_check().await?;
     let user_canister_principal_id = {
         let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
@@ -265,7 +274,11 @@ async fn monitor_and_top_up_user_canisters() -> Result<(), UserError> {
     handle_cycle_check().await?;
     let user_canisters = {
         let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
-        user_index_state.get_user_canisters()
+        user_index_state
+            .get_user_canisters()
+            .iter()
+            .map(|c| c.0)
+            .collect()
     };
 
     monitor_and_top_up_canisters(user_canisters).await?;
@@ -273,7 +286,7 @@ async fn monitor_and_top_up_user_canisters() -> Result<(), UserError> {
 }
 
 #[ic_cdk::query]
-fn get_user_canisters() -> Result<Vec<Principal>, UserError> {
+fn get_user_canisters() -> Result<Vec<WalletPrincipalId>, UserError> {
     let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
     Ok(user_index_state.get_user_canisters())
 }
@@ -288,7 +301,11 @@ fn get_number_of_registered_users() -> Result<usize, UserError> {
 async fn get_user_canisters_cycles() -> Result<Vec<(Principal, Nat)>, UserError> {
     let user_canisters = {
         let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
-        user_index_state.get_user_canisters()
+        user_index_state
+            .get_user_canisters()
+            .iter()
+            .map(|c| c.0)
+            .collect::<Vec<_>>()
     };
 
     let balances = get_cycle_balances(user_canisters).await;
@@ -319,7 +336,10 @@ async fn request_cycles() -> Result<(), UserError> {
 async fn transfer_cycles(cycles_amount: u128, caller: Principal) -> Result<(), UserError> {
     {
         let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
-        if !user_index_state.canister_user_count.contains_key(&caller) {
+        if !user_index_state
+            .canister_user_count
+            .contains_key(&UsersCanisterId(caller))
+        {
             return Err(UserError::ManagementCanisterError(
                 CanisterManagementError::Transfer(format!(
                     "Caller is not a valid destination: {}",
@@ -334,10 +354,10 @@ async fn transfer_cycles(cycles_amount: u128, caller: Principal) -> Result<(), U
 }
 
 fn safely_get_leaderboard_page(
-    leaderboard: &[(Principal, u64)],
+    leaderboard: &[(WalletPrincipalId, u64)],
     page: u64,
     page_size: u64,
-) -> Result<Vec<(Principal, u64)>, UserError> {
+) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
     let start = page as usize * page_size as usize;
     let end = start + page_size as usize;
     if start >= leaderboard.len() {
@@ -353,7 +373,7 @@ fn safely_get_leaderboard_page(
 async fn get_experience_points_leaderboard(
     page: u64,
     page_size: u64,
-) -> Result<Vec<(Principal, u64)>, UserError> {
+) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
     {
         if let Some(leaderboard_cache_timestamp) = *LEADERBOARD_CACHE_TIMESTAMP
             .lock()
@@ -390,7 +410,7 @@ async fn get_experience_points_leaderboard(
 async fn get_verified_experience_points_leaderboard(
     page: u64,
     page_size: u64,
-) -> Result<Vec<(Principal, u64)>, UserError> {
+) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
     {
         if let Some(leaderboard_cache_timestamp) = *VERIFIED_LEADERBOARD_CACHE_TIMESTAMP
             .lock()
@@ -470,7 +490,7 @@ async fn get_verified_experience_points_leaderboard_length() -> Result<usize, Us
 async fn get_pure_poker_experience_points(
     page: u64,
     page_size: u64,
-) -> Result<Vec<(Principal, u64)>, UserError> {
+) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
     {
         if let Some(leaderboard_cache_timestamp) = *PURE_POKER_LEADERBOARD_CACHE_TIMESTAMP
             .lock()
@@ -512,7 +532,7 @@ async fn get_pure_poker_experience_points(
 async fn get_verified_pure_poker_experience_points(
     page: u64,
     page_size: u64,
-) -> Result<Vec<(Principal, u64)>, UserError> {
+) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
     {
         if let Some(leaderboard_cache_timestamp) = *VERIFIED_PURE_POKER_LEADERBOARD_CACHE_TIMESTAMP
             .lock()
@@ -557,8 +577,8 @@ fn get_leaderboard_length() -> Result<usize, UserError> {
 }
 
 #[ic_cdk::update]
-async fn upgrade_all_user_canisters() -> Result<Vec<(Principal, CanisterManagementError)>, UserError>
-{
+async fn upgrade_all_user_canisters(
+) -> Result<Vec<(UsersCanisterId, CanisterManagementError)>, UserError> {
     // Validate caller permissions
     let caller = ic_cdk::api::msg_caller();
     if !CONTROLLER_PRINCIPALS.contains(&caller) {
@@ -569,7 +589,7 @@ async fn upgrade_all_user_canisters() -> Result<Vec<(Principal, CanisterManageme
 
     const BATCH_SIZE: usize = 30; // Process 30 users at a time, same as in get_experience_points_leaderboard
 
-    let users: Vec<Principal> = {
+    let users: Vec<UsersCanisterId> = {
         let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
         user_index_state.get_users_canisters()
     };
@@ -584,15 +604,18 @@ async fn upgrade_all_user_canisters() -> Result<Vec<(Principal, CanisterManageme
             .map(|&user_canister| {
                 let wasm_clone = wasm_module.clone();
                 async move {
-                    match upgrade_wasm_code(user_canister, wasm_clone).await {
+                    match upgrade_wasm_code(user_canister.0, wasm_clone).await {
                         Ok(_) => {
-                            ic_cdk::println!("Successfully upgraded canister {}", user_canister);
+                            ic_cdk::println!(
+                                "Successfully upgraded canister {}",
+                                user_canister.0.to_text()
+                            );
                             Ok(user_canister)
                         }
                         Err(e) => {
                             ic_cdk::println!(
                                 "Failed to upgrade canister {}: {:?}",
-                                user_canister,
+                                user_canister.0.to_text(),
                                 e
                             );
                             Err((user_canister, e))
@@ -644,7 +667,7 @@ async fn get_pure_poker_position(user_principal: Principal) -> Result<Option<u64
 }
 
 #[ic_cdk::update]
-async fn delete_users_canister(user_canister: Principal) -> Result<(), UserError> {
+async fn delete_users_canister(user_canister: UsersCanisterId) -> Result<(), UserError> {
     // Validate caller permissions
     let caller = ic_cdk::api::msg_caller();
     if !CONTROLLER_PRINCIPALS.contains(&caller) {
@@ -666,14 +689,41 @@ async fn delete_users_canister(user_canister: Principal) -> Result<(), UserError
     handle_cycle_check().await?;
 
     // Delete the canister
-    stop_and_delete_canister(user_canister).await.map_err(|e| {
-        UserError::ManagementCanisterError(CanisterManagementError::DeleteCanisterError(format!(
-            "Failed to delete canister {}: {:?}",
-            user_canister, e
-        )))
-    })?;
+    stop_and_delete_canister(user_canister.0)
+        .await
+        .map_err(|e| {
+            UserError::ManagementCanisterError(CanisterManagementError::DeleteCanisterError(
+                format!(
+                    "Failed to delete canister {}: {:?}",
+                    user_canister.0.to_text(),
+                    e
+                ),
+            ))
+        })?;
 
     Ok(())
+}
+
+#[ic_cdk::update]
+async fn get_user_by_username(user_name: String) -> Result<(WalletPrincipalId, UsersCanisterId), UserError> {
+    let users_canister_ids = {
+        let user_index_state = USER_INDEX_STATE.lock().map_err(|_| UserError::LockError)?;
+        user_index_state.get_users_canisters()
+    };
+
+    for user_canister in users_canister_ids {
+        let user = get_user_by_username_wrapper(user_canister, user_name.clone()).await;
+        match user {
+            Ok(user) => {
+                if user.user_name == user_name {
+                    return Ok((user.principal_id, user_canister));
+                }
+            }
+            Err(_) => continue, // Ignore errors and continue searching
+        }
+    }
+
+    Err(UserError::UserNotFound)
 }
 
 #[ic_cdk::update]
@@ -728,6 +778,21 @@ async fn get_canister_status_formatted() -> Result<String, UserError> {
 
     ic_cdk::println!("{}", formatted_status);
     Ok(formatted_status)
+}
+
+#[ic_cdk::update]
+async fn get_ckbtc_balance() -> Result<u64, UserError> {
+    let currency_manager = {
+        CURRENCY_MANAGER
+            .lock()
+            .map_err(|_| UserError::LockError)?
+            .clone()
+    };
+    let balance = currency_manager
+        .get_balance(&currency::Currency::BTC, ic_cdk::api::canister_self())
+        .await
+        .map_err(|e| UserError::CanisterCallFailed(format!("{:?}", e)))?;
+    Ok(balance as u64)
 }
 
 ic_cdk::export_candid!();

@@ -1,5 +1,4 @@
 use serial_test::serial;
-use tournaments::tournaments::types::PayoutPercentage;
 
 use crate::TestEnv;
 
@@ -17,10 +16,7 @@ fn test_cycles_return_on_tournament_completion() {
         index_cycles_before_creation
     );
 
-    let (tournament_id, _) = test_env.setup_payout_tournament(vec![PayoutPercentage {
-        position: 1,
-        percentage: 100,
-    }]);
+    let (tournament_id, _) = test_env.setup_payout_tournament(None, 2, 8, None);
     // Get initial cycle balance for tournament index
     let index_cycles_before = test_env
         .pocket_ic
@@ -33,7 +29,7 @@ fn test_cycles_return_on_tournament_completion() {
     );
 
     // Get cycle balance of tournament canister
-    let tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id);
+    let tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id.0);
     println!("Tournament canister cycles: {}", tournament_cycles);
     assert!(
         tournament_cycles > 0,
@@ -58,7 +54,7 @@ fn test_cycles_return_on_tournament_completion() {
     );
 
     // Get the tournament canister's remaining cycles
-    let remaining_tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id);
+    let remaining_tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id.0);
     println!(
         "Remaining tournament canister cycles: {}",
         remaining_tournament_cycles

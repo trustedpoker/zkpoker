@@ -148,12 +148,10 @@ const PreviewStepComponent = memo<StepComponentProps<TypeStepValues>>(({ data })
         ),
       })}
 
-      {data.payout_structure && (
-        <List label="Payout structure">
-          {data.payout_structure.map(({ percentage, position }) => (
-            <ListItem key={position} rightLabel={`${percentage}%`}>#{position + 1}</ListItem>
-          ))}
-        </List>
+      {data.guaranteed_prize_pool?.[0] && (
+        <ListItem rightLabel={<CurrencyComponent currencyValue={data.guaranteed_prize_pool[0]} currencyType={data.currency ?? { Real: { ICP: null } }} />}>
+          Guaranteed prize pool
+        </ListItem>
       )}
 
     </>

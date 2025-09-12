@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 
 import { createActor } from '@declarations/tournament_canister';
-import { callActorMutation, TitleTextComponent, useQuery } from '@zk-game-dao/ui';
+import { callActorMutation, TitleTextComponent, UnwrapOptional, useQuery } from '@zk-game-dao/ui';
 
 import {
   TournamentLeaderboardEntryData
@@ -15,6 +15,7 @@ export const TournamentLeaderboardPage = memo(() => {
   const { data, prizepool, user } = useTournament(true);
 
   const isCompleted = useMemo(() => 'Completed' in data.state || 'Cancelled' in data.state, [data.state]);
+  const hasSortedUsers = useMemo(() => !!data.sorted_users[0]?.length && data.sorted_users[0].length > 0, [data.sorted_users[0]?.length]);
   const remainingPlayers = useMemo(() => data.current_players.length, [data.current_players]);
 
   const leaderboard = useQuery({
@@ -25,7 +26,8 @@ export const TournamentLeaderboardPage = memo(() => {
       rank: Number(rank),
     })).sort((a, b) => a.rank - b.rank),
     refetchInterval: 120000, // 2 minutes
-    initialData: []
+    initialData: [],
+    enabled: !hasSortedUsers
   });
 
   const liveLeaderboard = useQuery({
@@ -36,9 +38,9 @@ export const TournamentLeaderboardPage = memo(() => {
       chips,
       rank
     })),
-    enabled: !isCompleted,
+    enabled: !isCompleted && !hasSortedUsers,
     refetchInterval: 120000, // 2 minutes
-    initialData: []
+    initialData: [],
   });
 
   return (
@@ -57,6 +59,7 @@ export const TournamentLeaderboardPage = memo(() => {
         prizepool={prizepool}
         currencyType={data.currency}
         tournamentUserId={user?.principal}
+        sortedUsers={UnwrapOptional(data.sorted_users)}
       />
     </>
   );

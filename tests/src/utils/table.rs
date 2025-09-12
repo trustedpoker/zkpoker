@@ -3,12 +3,16 @@ use currency::Currency;
 use errors::{table_error::TableError, table_index_error::TableIndexError};
 use table::{
     poker::game::{
-        table_functions::{table::TableConfig, types::BetType},
+        table_functions::{
+            table::{TableConfig, TableId},
+            types::BetType,
+        },
         types::PublicTable,
     },
     types::ReturnResult,
 };
 use table_index_types::filter::FilterOptions;
+use user::user::{UsersCanisterId, WalletPrincipalId};
 
 use crate::TestEnv;
 
@@ -32,9 +36,9 @@ impl TestEnv {
         }
     }
 
-    pub fn get_table(&self, table_id: Principal) -> Result<PublicTable, TableError> {
+    pub fn get_table(&self, table_id: TableId) -> Result<PublicTable, TableError> {
         let table_state = self.pocket_ic.query_call(
-            table_id,
+            table_id.0,
             Principal::anonymous(),
             "get_table",
             encode_args(()).unwrap(),
@@ -74,16 +78,16 @@ impl TestEnv {
 
     pub fn join_test_table(
         &self,
-        table_id: Principal,
-        user: Principal,
-        user_id: Principal,
+        table_id: TableId,
+        user: UsersCanisterId,
+        user_id: WalletPrincipalId,
         deposit_amount: u64,
         seat_index: u64,
         player_sitting_out: bool,
     ) -> Result<PublicTable, TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "join_table",
             encode_args((
                 user,               // user_principal
@@ -104,10 +108,13 @@ impl TestEnv {
         }
     }
 
-    pub fn pause_table(&self, table_id: Principal) -> Result<(), TableError> {
-        let res =
-            self.pocket_ic
-                .update_call(table_id, table_id, "pause_table", encode_args(()).unwrap());
+    pub fn pause_table(&self, table_id: TableId) -> Result<(), TableError> {
+        let res = self.pocket_ic.update_call(
+            table_id.0,
+            table_id.0,
+            "pause_table",
+            encode_args(()).unwrap(),
+        );
 
         match res {
             Ok(arg) => {
@@ -118,10 +125,10 @@ impl TestEnv {
         }
     }
 
-    pub fn unpause_table(&self, table_id: Principal) -> Result<(), TableError> {
+    pub fn unpause_table(&self, table_id: TableId) -> Result<(), TableError> {
         let res = self.pocket_ic.update_call(
-            table_id,
-            table_id,
+            table_id.0,
+            table_id.0,
             "resume_table",
             encode_args(()).unwrap(),
         );
@@ -137,13 +144,13 @@ impl TestEnv {
 
     pub fn leave_test_table(
         &self,
-        table_id: Principal,
-        user: Principal,
-        wallet_principal_id: Principal,
+        table_id: TableId,
+        user: UsersCanisterId,
+        wallet_principal_id: WalletPrincipalId,
     ) -> Result<PublicTable, TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            wallet_principal_id,
+            table_id.0,
+            wallet_principal_id.0,
             "leave_table",
             encode_args((user, wallet_principal_id)).unwrap(),
         );
@@ -157,10 +164,10 @@ impl TestEnv {
         }
     }
 
-    pub fn start_betting_round_test_table(&self, table_id: Principal) -> Result<(), TableError> {
+    pub fn start_betting_round_test_table(&self, table_id: TableId) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            table_id,
+            table_id.0,
+            table_id.0,
             "start_new_betting_round",
             candid::encode_args(()).unwrap(),
         );
@@ -174,10 +181,10 @@ impl TestEnv {
         }
     }
 
-    pub fn player_sitting_out_test_table(&self, table_id: Principal, user_id: Principal) {
+    pub fn player_sitting_out_test_table(&self, table_id: TableId, user_id: WalletPrincipalId) {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user_id,
+            table_id.0,
+            user_id.0,
             "player_sitting_out",
             candid::encode_args((user_id,)).unwrap(),
         );
@@ -193,13 +200,13 @@ impl TestEnv {
 
     pub fn player_sitting_in_test_table(
         &self,
-        table_id: Principal,
-        user: Principal,
-        users_canister_id: Principal,
+        table_id: TableId,
+        user: WalletPrincipalId,
+        users_canister_id: UsersCanisterId,
     ) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "player_sitting_in",
             candid::encode_args((users_canister_id, user, true)).unwrap(),
         );
@@ -215,13 +222,13 @@ impl TestEnv {
 
     pub fn player_bet(
         &self,
-        table_id: Principal,
-        user: Principal,
+        table_id: TableId,
+        user: WalletPrincipalId,
         bet_type: BetType,
     ) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "place_bet",
             candid::encode_args((user, bet_type)).unwrap(),
         );
@@ -235,10 +242,14 @@ impl TestEnv {
         }
     }
 
-    pub fn player_check(&self, table_id: Principal, user: Principal) -> Result<(), TableError> {
+    pub fn player_check(
+        &self,
+        table_id: TableId,
+        user: WalletPrincipalId,
+    ) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "check",
             candid::encode_args((user,)).unwrap(),
         );
@@ -252,10 +263,14 @@ impl TestEnv {
         }
     }
 
-    pub fn player_fold(&self, table_id: Principal, user: Principal) -> Result<(), TableError> {
+    pub fn player_fold(
+        &self,
+        table_id: TableId,
+        user: WalletPrincipalId,
+    ) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "fold",
             candid::encode_args((user, false)).unwrap(),
         );
@@ -271,14 +286,14 @@ impl TestEnv {
 
     pub fn player_deposit(
         &self,
-        table_id: Principal,
-        users_canister_id: Principal,
-        user_id: Principal,
+        table_id: TableId,
+        users_canister_id: UsersCanisterId,
+        user_id: WalletPrincipalId,
         amount: u64,
     ) -> Result<ReturnResult, TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user_id,
+            table_id.0,
+            user_id.0,
             "deposit_to_table",
             candid::encode_args((users_canister_id, user_id, amount, false)).unwrap(),
         );
@@ -295,15 +310,15 @@ impl TestEnv {
 
     pub fn player_withdraw(
         &self,
-        table_id: Principal,
-        wallet_principal_id: Principal,
+        table_id: TableId,
+        wallet_principal_id: WalletPrincipalId,
         amount: u64,
     ) -> Result<(), TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            wallet_principal_id,
+            table_id.0,
+            wallet_principal_id.0,
             "withdraw_from_table",
-            candid::encode_args((wallet_principal_id, amount)).unwrap(),
+            candid::encode_args((wallet_principal_id.0, amount)).unwrap(),
         );
 
         match table_state {
@@ -315,7 +330,7 @@ impl TestEnv {
         }
     }
 
-    pub fn get_test_icp_table(&self) -> (Principal, TableConfig) {
+    pub fn get_test_icp_table(&self) -> (TableId, TableConfig) {
         // Create a table configuration
         let table_config = TableConfig {
             name: "Test Table".to_string(),
@@ -346,7 +361,7 @@ impl TestEnv {
         (public_table.id, table_config)
     }
 
-    pub fn get_test_fake_table(&self) -> (Principal, TableConfig) {
+    pub fn get_test_fake_table(&self) -> (TableId, TableConfig) {
         // Create a table configuration
         let table_config = TableConfig {
             name: "Test Table".to_string(),
@@ -375,7 +390,7 @@ impl TestEnv {
         (public_table.id, table_config)
     }
 
-    pub fn get_ckusdc_test_table(&self) -> (Principal, TableConfig) {
+    pub fn get_ckusdc_test_table(&self) -> (TableId, TableConfig) {
         // Create a table configuration
         let table_config = TableConfig {
             name: "Test Table".to_string(),
@@ -410,9 +425,9 @@ impl TestEnv {
         &self,
         name: String,
         amount: f64,
-        table_id: Principal,
-    ) -> (Principal, Principal, u128) {
-        let user_id = Principal::self_authenticating(&name);
+        table_id: TableId,
+    ) -> (UsersCanisterId, WalletPrincipalId, u128) {
+        let user_id = WalletPrincipalId(Principal::self_authenticating(&name));
         let user_principal = self
             .create_user(name, user_id)
             .expect("Failed to create user");
@@ -421,7 +436,7 @@ impl TestEnv {
         transfer_tokens(
             &self.pocket_ic,
             amount,
-            user_id,
+            user_id.0,
             self.canister_ids.ledger,
             Principal::self_authenticating("minter"),
             true,
@@ -431,12 +446,16 @@ impl TestEnv {
         let approval_block = approve_icrc1_tokens(
             &self.pocket_ic,
             amount,
-            table_id,
+            table_id.0,
             self.canister_ids.ledger,
-            user_id,
+            user_id.0,
         );
 
-        (user_principal.users_canister_id, user_id, approval_block)
+        (
+            user_principal.users_canister_id,
+            user_principal.principal_id,
+            approval_block,
+        )
     }
 
     // Create a test user with CKUSDC deposit using approvals
@@ -444,9 +463,9 @@ impl TestEnv {
         &self,
         name: String,
         amount: f64,
-        table_id: Principal,
-    ) -> (Principal, Principal, u128) {
-        let user_id = Principal::self_authenticating(&name);
+        table_id: TableId,
+    ) -> (UsersCanisterId, WalletPrincipalId, u128) {
+        let user_id = WalletPrincipalId(Principal::self_authenticating(&name));
         let user_principal = self
             .create_user(name, user_id)
             .expect("Failed to create user");
@@ -455,7 +474,7 @@ impl TestEnv {
         transfer_icrc1_tokens(
             &self.pocket_ic,
             amount,
-            user_id,
+            user_id.0,
             self.canister_ids.ckusdc_ledger,
             Principal::self_authenticating("minter"),
             true,
@@ -465,24 +484,28 @@ impl TestEnv {
         let approval_block = approve_icrc1_tokens(
             &self.pocket_ic,
             amount,
-            table_id,
+            table_id.0,
             self.canister_ids.ckusdc_ledger,
-            user_id,
+            user_id.0,
         );
 
-        (user_principal.users_canister_id, user_id, approval_block)
+        (
+            user_principal.users_canister_id,
+            user_principal.principal_id,
+            approval_block,
+        )
     }
 
     // Update player_deposit to use approval-based flow
     pub fn player_deposit_with_approval(
         &self,
-        table_id: Principal,
-        user: Principal,
+        table_id: TableId,
+        user: WalletPrincipalId,
         amount: u64,
     ) -> Result<table::types::ReturnResult, TableError> {
         let table_state = self.pocket_ic.update_call(
-            table_id,
-            user,
+            table_id.0,
+            user.0,
             "deposit_to_table",
             candid::encode_args((user, user, amount, false)).unwrap(),
         );
@@ -500,8 +523,8 @@ impl TestEnv {
     // Adding a helper function to pre-approve tokens for a specific table for all test usage
     pub fn approve_tokens_for_testing(
         &self,
-        table_id: Principal,
-        user: Principal,
+        table_id: TableId,
+        user: WalletPrincipalId,
         amount: f64,
         is_icp: bool,
     ) -> u128 {
@@ -511,14 +534,14 @@ impl TestEnv {
             self.canister_ids.ckusdc_ledger
         };
 
-        approve_icrc1_tokens(&self.pocket_ic, amount, table_id, ledger, user)
+        approve_icrc1_tokens(&self.pocket_ic, amount, table_id.0, ledger, user.0)
     }
 
     // Adding a helper function to pre-approve tokens for a specific table for all test usage
     pub fn transfer_approve_tokens_for_testing(
         &self,
         table_id: Principal,
-        user: Principal,
+        user: WalletPrincipalId,
         amount: f64,
         is_icp: bool,
     ) -> u128 {
@@ -532,7 +555,7 @@ impl TestEnv {
             transfer_tokens(
                 &self.pocket_ic,
                 amount,
-                user,
+                user.0,
                 self.canister_ids.ledger,
                 Principal::self_authenticating("minter"),
                 true,
@@ -541,13 +564,13 @@ impl TestEnv {
             transfer_icrc1_tokens(
                 &self.pocket_ic,
                 amount,
-                user,
+                user.0,
                 self.canister_ids.ckusdc_ledger,
                 Principal::self_authenticating("minter"),
                 true,
             );
         }
 
-        approve_icrc1_tokens(&self.pocket_ic, amount, table_id, ledger, user)
+        approve_icrc1_tokens(&self.pocket_ic, amount, table_id, ledger, user.0)
     }
 }

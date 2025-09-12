@@ -5,8 +5,10 @@ import { lazy, memo, Suspense, useMemo } from 'react';
 import { createBrowserRouter, LoaderFunction, redirect, RouteObject, RouterProvider } from 'react-router-dom';
 
 import { ThemeContextType } from './context/platform-theme.context';
+// import { ClansRouter } from './lib/clans/pages/clans.router';
 import { TournamentsRouter } from './lib/tournament/pages/tournaments.router';
 import { RootComponent } from './root.component';
+import { AdminRouter } from './lib/admin/pages/admin.router';
 
 BigInt.prototype.toJSON = function () {
   return this.toString();
@@ -48,12 +50,11 @@ const BuildRouter = (theme: Omit<ThemeContextType, 'setShownCurrencyType'>) => {
       children: [{ path: ":tableId", element: <TablePage /> }],
     },
     TournamentsRouter,
-  ];
-
-  if (!theme.isBTC)
-    children.push({
+    AdminRouter,
+    {
       path: "leaderboard",
-      children: [
+      element: theme.isBTC ? <LeaderboardPage disableVerifiedLeaderboard /> : undefined,
+      children: !theme.isBTC ? [
         {
           path: "",
           loader: redirectLoader("/leaderboard/verified"),
@@ -62,8 +63,9 @@ const BuildRouter = (theme: Omit<ThemeContextType, 'setShownCurrencyType'>) => {
           path: ":type",
           element: <LeaderboardPage />,
         }
-      ]
-    });
+      ] : undefined
+    }
+  ];
 
   return createBrowserRouter([
     {

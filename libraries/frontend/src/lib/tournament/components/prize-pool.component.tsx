@@ -18,6 +18,7 @@ import { memo, useMemo, useState } from 'react';
 import { Queries } from '../../data';
 import { callActorMutation } from '../../utils/call-actor-mutation';
 import { useTournament } from '../context/tournament.context';
+import { useShowPrizepool } from '../hooks/show-prizepool';
 
 const RakePercentage = 15n;
 
@@ -42,6 +43,7 @@ export const PricePool = memo<{ hideOnDesktop?: boolean; hideOnMobile?: boolean;
       return await callActorMutation(actor, 'deposit_prize_pool',
         donationAmount,
         authData.principal,
+        false
       );
     },
     onSuccess: () => {
@@ -52,6 +54,8 @@ export const PricePool = memo<{ hideOnDesktop?: boolean; hideOnMobile?: boolean;
       Queries.tournament.invalidate(data.id);
     },
   });
+
+  const showPrizepool = useShowPrizepool(data);
 
   return (
     <div className={classNames("flex-col md:w-[300px] mt-4", hideOnMobile || hideOnDesktop ? { 'hidden md:flex': hideOnMobile, 'flex md:hidden': hideOnDesktop } : 'flex')}>
@@ -92,12 +96,14 @@ export const PricePool = memo<{ hideOnDesktop?: boolean; hideOnMobile?: boolean;
         </ModalFooterPortal>
       </Modal>
       <List>
-        <ListItem rightLabel={<CurrencyComponent currencyValue={prizepool} currencyType={currencyType} />}>
-          Prize Pool
-        </ListItem>
+        {showPrizepool && (
+          <ListItem rightLabel={<CurrencyComponent currencyValue={prizepool} currencyType={currencyType} />}>
+            Prize Pool
+          </ListItem>
+        )}
         {!('Cancelled' in data.state || 'Completed' in data.state) && (
           <ListItem onClick={() => setShowDonate(true)}>
-            Donate
+            Donate{!showPrizepool ? ' to prize pool' : ''}
           </ListItem>
         )}
       </List>

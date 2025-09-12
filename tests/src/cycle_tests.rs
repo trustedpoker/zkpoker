@@ -10,8 +10,9 @@ use table::poker::game::{
 };
 use tournaments::tournaments::{
     tournament_type::{BuyInOptions, TournamentSizeType, TournamentType},
-    types::{NewTournament, NewTournamentSpeedType, PayoutPercentage},
+    types::{NewTournament, NewTournamentSpeedType},
 };
+use user::user::WalletPrincipalId;
 
 use crate::{TestEnv, INIT_CYCLES_BALANCE};
 
@@ -78,7 +79,7 @@ fn test_cycles_create_user() {
     let _user_1 = test_env
         .create_user(
             "User 1".to_string(),
-            Principal::self_authenticating("user1cyclestest"),
+            WalletPrincipalId(Principal::self_authenticating("user1cyclestest")),
         )
         .expect("Failed to create user");
 
@@ -104,15 +105,12 @@ fn test_cycles_create_tournament() {
         hero_picture: "".to_string(),
         currency: CurrencyType::Real(Currency::ICP),
         buy_in: convert_to_e8s(10.0),
+        guaranteed_prize_pool: None,
         starting_chips: 1000,
         speed_type: NewTournamentSpeedType::Regular(20),
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -154,14 +152,14 @@ fn test_cycles_create_tournament() {
     assert!(cycles_before <= INIT_CYCLES_BALANCE);
 
     let tournament_id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .expect("Failed to create tournament");
 
     // Verify the tournament canister was created
-    assert!(test_env.pocket_ic.canister_exists(tournament_id));
+    assert!(test_env.pocket_ic.canister_exists(tournament_id.0));
 
     // Check if cycles were transferred to the new tournament canister
-    let tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id);
+    let tournament_cycles = test_env.pocket_ic.cycle_balance(tournament_id.0);
     println!("Tournament canister cycles: {:?}", tournament_cycles);
     assert!(
         tournament_cycles > 0,

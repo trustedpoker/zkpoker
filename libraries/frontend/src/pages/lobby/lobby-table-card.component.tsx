@@ -12,9 +12,8 @@ import {
   TableBackgroundComponent
 } from '@lib/table/components/table/table-background/table-background.component';
 import { useTableUrl } from '@lib/table/context/table.context';
-import { TokenAmountToString } from '@lib/utils/token-amount-conversion';
 import {
-  CurrencyComponent, CurrencyTypeComponent, useCurrencyManagerMeta, useIsBTC
+  CurrencyComponent, CurrencyTypeComponent, useIsBTC
 } from '@zk-game-dao/currency';
 import { Interactable, List, ListItem, PillComponent, useConfig } from '@zk-game-dao/ui';
 
@@ -56,7 +55,6 @@ export const LobbyTableCardComponent = memo<
       timer_duration,
     } = config;
 
-    const meta = useCurrencyManagerMeta(config.currency_type);
     const isBTC = useIsBTC();
 
     const userAmount = useMemo(() => seats.filter(v => !("Empty" in v)).length, [seats]);
@@ -189,6 +187,8 @@ export const LobbyTableCardComponent = memo<
           {(() => {
             if ("NoLimit" in game_type)
               return <ListItem rightLabel="No limit">Game type</ListItem>;
+            if ("PotLimit" in game_type)
+              return <ListItem rightLabel="Pot limit">Game type</ListItem>;
             if ("SpreadLimit" in game_type)
               return (
                 <>

@@ -233,4 +233,10 @@ export const Tooltips = {
       The tournaments token is used for the prize pool and for buy-in (if it is'nt a free-roll tournament).
     </TooltipComponent>
   ),
+
+  ...BuildTooltipMemo('guaranteed_prize_pool', () =>
+    <TooltipComponent title="Guaranteed Prize Pool">
+      Ensures a minimum payout for the tournament. If the collected prize pool is below the guaranteed amount, the system automatically adds the difference.
+    </TooltipComponent>
+  ),
 }

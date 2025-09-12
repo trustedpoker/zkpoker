@@ -104,7 +104,7 @@ export const AboutUsPage = memo(() => {
   return (
     <LayoutComponent footer hero={{
       title: "Pure Poker",
-      subTitle: "The Worlds First Fully Onchain Bitcoin Poker Room",
+      subTitle: "The World's First Fully On-Chain Bitcoin Poker Room",
       ctas: [
         { children: 'Create table', onClick: () => setModalOpen(true) },
         { children: 'Go to lobby', href: '/cash-games', filled: true }
@@ -133,9 +133,9 @@ export const AboutUsPage = memo(() => {
         <div className="flex flex-col lg:flex-row items-start gap-8 justify-center">
           <Element
             icon="/icons/peer-to-peer-green.svg"
-            title="Provable Fair Gamplay"
+            title="Provable Fair Gameplay"
             variant="green"
-            text="Card shuffling and RNG derived from Onchain Randomness (VRF)"
+            text="Card shuffling and RNG derived from on-chain randomness (VRF)"
           />
           <Element
             icon="/icons/instant-payouts-green.svg"
@@ -147,7 +147,7 @@ export const AboutUsPage = memo(() => {
             icon="/icons/multichain-green.svg"
             title="Anti-Bot"
             variant="green"
-            text="We utilise proof of humanity systems (through DecideAI PoH) to element bots playing on our site"
+            text="We utilise proof of humanity systems (through DecideAI PoH) to eliminate bots playing on our site"
           />
         </div>
 
@@ -182,7 +182,7 @@ export const AboutUsPage = memo(() => {
             </div>
           </div>
           <Element
-            title="Your keys, your sats"
+            title="Your Keys, Your Sats"
             text="We never have custody over your funds. Your wallet is bound to your login, meaning you remain in full control at all times."
           />
         </div>
@@ -191,7 +191,7 @@ export const AboutUsPage = memo(() => {
           <Element
             title="The Store for visual upgrades"
             isComingSoon
-            text="Personalize your gaming experience with unique tables, decks, environments, and other items available as NFTs and purchaseables."
+            text="Personalize your gaming experience with unique tables, decks, environments, and other items available as NFTs and purchasables."
           />
           <div className="flex flex-col justify-center items-center w-full relative gap-16 my-16 lg:my-0">
             <div className="flex flex-col mr-20">

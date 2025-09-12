@@ -108,6 +108,7 @@ export const GameTypeStepComponent = memo<StepComponentProps<Value> & { hideFake
 
   const [limits, setLimits] = useState({
     NoLimit: 0n,
+    PotLimit: 0n,
     FixedLimit: (data.game_type && "FixedLimit" in data.game_type
       ? [data.game_type.FixedLimit[0], data.game_type.FixedLimit[1]]
       : []) as [bigint | undefined, bigint | undefined],
@@ -125,20 +126,27 @@ export const GameTypeStepComponent = memo<StepComponentProps<Value> & { hideFake
         case "NoLimit":
           game_type = { NoLimit: nLimits.NoLimit as bigint };
           break;
+        case "PotLimit":
+          game_type = { PotLimit: nLimits.PotLimit as bigint };
+          break;
         case "SpreadLimit":
           if (
             nLimits.SpreadLimit?.[0] === undefined ||
             nLimits.SpreadLimit?.[1] === undefined
-          )
+          ) {
+            game_type = { SpreadLimit: [0n, 0n] };
             break;
+          }
           game_type = { SpreadLimit: nLimits.SpreadLimit as [bigint, bigint] };
           break;
         case "FixedLimit":
           if (
             nLimits.FixedLimit?.[0] === undefined ||
             nLimits.FixedLimit?.[1] === undefined
-          )
+          ) {
+            game_type = { FixedLimit: [0n, 0n] };
             break;
+          }
           game_type = { FixedLimit: nLimits.FixedLimit as [bigint, bigint] };
           break;
       }
@@ -195,6 +203,10 @@ export const Config: SteppedModalStep<Value> = {
     if (!game_type) return ["Game type is required"];
     if ("NoLimit" in game_type) {
       if (game_type.NoLimit <= 0) return ["Bets must be greater than 0"];
+      return true;
+    }
+    if ("PotLimit" in game_type) {
+      if (game_type.PotLimit <= 0) return ["Bets must be greater than 0"];
       return true;
     }
     if ("SpreadLimit" in game_type) {

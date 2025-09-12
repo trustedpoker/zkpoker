@@ -30,8 +30,8 @@ pub enum TournamentIndexError {
     #[error("Insufficient liquidity")]
     InsufficientLiquidity,
 
-    #[error("Not authorized")]
-    NotAuthorized,
+    #[error("Not authorized: {0}")]
+    NotAuthorized(String),
 
     #[error("failed to acquire lock")]
     LockError,
@@ -50,4 +50,7 @@ pub enum TournamentIndexError {
 
     #[error("Failed to make canister call: {0}")]
     CanisterCallError(String),
+
+    #[error("Error: {0}")]
+    Other(String),
 }

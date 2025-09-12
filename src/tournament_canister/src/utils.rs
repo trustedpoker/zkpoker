@@ -17,7 +17,10 @@ use intercanister_call_wrappers::tournament_canister::{
 };
 use table::{
     poker::game::{
-        table_functions::{table::TableConfig, types::CurrencyType},
+        table_functions::{
+            table::{TableConfig, TableId},
+            types::CurrencyType,
+        },
         types::PublicTable,
     },
     table_canister::{
@@ -27,9 +30,10 @@ use table::{
 };
 use tournaments::tournaments::{
     tournament_type::{TournamentSizeType, TournamentType},
-    types::{TournamentData, TournamentState},
+    types::{TournamentData, TournamentId, TournamentState},
     utils::calculate_rake,
 };
+use user::user::{UsersCanisterId, WalletPrincipalId};
 
 use crate::{
     CONTROLLER_PRINCIPALS, CURRENCY_MANAGER, LAST_LEADERBOARD_UPDATE, LEADERBOARD,
@@ -64,50 +68,6 @@ pub fn get_canister_state() -> CanisterState {
         default_subaccount,
         account_identifier,
     }
-}
-
-pub fn handle_cycle_check() {
-    let cycles = ic_cdk::api::canister_cycle_balance();
-    if cycles >= MINIMUM_CYCLE_THRESHOLD {
-        return;
-    }
-    ic_cdk::println!("%%%%%%%%%%% Cycles balance is low: {}", Nat::from(cycles));
-
-    ic_cdk::futures::spawn(async {
-        let tournament_index_result = TOURNAMENT_INDEX.lock();
-        let tournament_index = match tournament_index_result {
-            Ok(lock) => match *lock {
-                Some(index) => index,
-                None => {
-                    ic_cdk::println!("User not found");
-                    return; // or perform some error handling
-                }
-            },
-            Err(_) => {
-                ic_cdk::println!("Lock error occurred");
-                return; // or handle the lock error
-            }
-        };
-
-        ic_cdk::println!(
-            "%%%%%%%%%%%%%%%% Requesting cycles from tournament index: {:?}",
-            tournament_index.to_text()
-        );
-
-        if let Err(e) = check_and_top_up_canister(
-            ic_cdk::api::canister_self(),
-            tournament_index,
-            MINIMUM_CYCLE_THRESHOLD,
-        )
-        .await
-        {
-            ic_cdk::println!("Failed to top up canister: {:?}", e);
-        }
-        ic_cdk::println!(
-            "%%%%%%%%%%%%%%%% Finished requesting cycles: {}",
-            Nat::from(ic_cdk::api::canister_cycle_balance())
-        );
-    });
 }
 
 pub async fn handle_cycle_check_async() {
@@ -152,12 +112,56 @@ pub async fn handle_cycle_check_async() {
     );
 }
 
+pub fn handle_cycle_check() {
+    let cycles = ic_cdk::api::canister_cycle_balance();
+    if cycles >= MINIMUM_CYCLE_THRESHOLD {
+        return;
+    }
+    ic_cdk::println!("%%%%%%%%%%% Cycles balance is low: {}", Nat::from(cycles));
+
+    ic_cdk::futures::spawn(async {
+        let tournament_index_result = TOURNAMENT_INDEX.lock();
+        let tournament_index = match tournament_index_result {
+            Ok(lock) => match *lock {
+                Some(index) => index,
+                None => {
+                    ic_cdk::println!("User not found");
+                    return; // or perform some error handling
+                }
+            },
+            Err(_) => {
+                ic_cdk::println!("Lock error occurred");
+                return; // or handle the lock error
+            }
+        };
+    
+        ic_cdk::println!(
+            "%%%%%%%%%%%%%%%% Requesting cycles from tournament index: {:?}",
+            tournament_index.to_text()
+        );
+    
+        if let Err(e) = check_and_top_up_canister(
+            ic_cdk::api::canister_self(),
+            tournament_index,
+            MINIMUM_CYCLE_THRESHOLD,
+        )
+        .await
+        {
+            ic_cdk::println!("Failed to top up canister: {:?}", e);
+        }
+        ic_cdk::println!(
+            "%%%%%%%%%%%%%%%% Finished requesting cycles: {}",
+            Nat::from(ic_cdk::api::canister_cycle_balance())
+        );
+    });
+}
+
 pub async fn create_table(
     tournament_config: &TournamentData,
     table_config: TableConfig,
     table_canister: Option<Principal>,
 ) -> Result<PublicTable, TournamentError> {
-    handle_cycle_check();
+    handle_cycle_check_async().await;
     let controllers = CONTROLLER_PRINCIPALS.clone();
     let wasm_module = TABLE_CANISTER_WASM.to_vec();
     let table_canister_principal = if let Some(table_canister) = table_canister {
@@ -190,7 +194,7 @@ pub async fn create_table(
         }
     };
 
-    let table = create_table_wrapper(table_canister_principal, config, raw_bytes).await?;
+    let table = create_table_wrapper(TableId(table_canister_principal), config, raw_bytes).await?;
 
     Ok(table)
 }
@@ -217,7 +221,7 @@ fn get_table_config(
 }
 
 pub fn handle_refund(
-    wallet_principal_id: Principal,
+    wallet_principal_id: WalletPrincipalId,
     amount: u64,
     currency_type: String,
 ) -> Result<(), TableError> {
@@ -237,7 +241,7 @@ pub fn handle_refund(
                 .clone()
         };
         if let Err(e) = currency_manager
-            .withdraw(&currency, wallet_principal_id, amount)
+            .withdraw(&currency, wallet_principal_id.0, amount)
             .await
         {
             ic_cdk::println!("Failed to refund user: {:?}", e);
@@ -250,7 +254,7 @@ pub fn handle_refund(
 pub async fn handle_tournament_deposit(
     currency: CurrencyType,
     amount: u64,
-    wallet_principal_id: Principal,
+    wallet_principal_id: WalletPrincipalId,
 ) -> Result<(), TournamentError> {
     match currency {
         CurrencyType::Real(currency) => {
@@ -271,7 +275,7 @@ pub async fn handle_tournament_deposit(
                 .deposit(
                     &mut transaction_state,
                     &currency,
-                    wallet_principal_id,
+                    wallet_principal_id.0,
                     amount,
                 )
                 .await
@@ -288,7 +292,7 @@ pub async fn handle_tournament_deposit(
 }
 
 pub fn handle_invalid_join<T>(
-    user_id: Principal,
+    user_id: WalletPrincipalId,
     currency_type: String,
     should_refund: bool,
     error: T,
@@ -314,14 +318,14 @@ where
 
 pub async fn check_tournament_end(remaining_players: usize) -> Result<(), TournamentError> {
     if remaining_players == 1 {
-        handle_tournament_end_wrapper(ic_cdk::api::canister_self()).await?;
+        handle_tournament_end_wrapper(TournamentId(ic_cdk::api::canister_self())).await?;
     }
 
     Ok(())
 }
 
-pub async fn delete_table(table_principal: Principal) -> Result<(), TournamentError> {
-    handle_cycle_check();
+pub async fn delete_table(table_principal: TableId) -> Result<(), TournamentError> {
+    handle_cycle_check_async().await;
     let res = is_game_ongoing_wrapper(table_principal).await?;
 
     if res {
@@ -331,7 +335,7 @@ pub async fn delete_table(table_principal: Principal) -> Result<(), TournamentEr
     } else {
         return_all_cycles_to_index(table_principal).await?;
 
-        stop_and_delete_canister(table_principal).await?;
+        stop_and_delete_canister(table_principal.0).await?;
     }
     Ok(())
 }
@@ -339,9 +343,9 @@ pub async fn delete_table(table_principal: Principal) -> Result<(), TournamentEr
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_reentry(
     buy_in_type: TournamentSizeType,
-    users_canister_id: Principal,
-    user_id: Principal,
-    table_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
+    table_id: TableId,
     tournament_state: &TournamentData,
     currency_type: String,
 ) -> Result<u64, TournamentError> {
@@ -393,7 +397,7 @@ pub async fn handle_reentry(
                 TournamentError::CanisterCallError(format!("{:?}", e))
             })?;
 
-            add_to_tournament_prize_pool(buy_in_options.reentry.reentry_price)?;
+            add_to_tournament_prize_pool(buy_in_options.reentry.reentry_price, false)?;
 
             Ok(buy_in_options.reentry.reentry_price)
         }
@@ -403,9 +407,9 @@ pub async fn handle_reentry(
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_rebuy(
     buy_in_type: TournamentSizeType,
-    users_canister_id: Principal,
-    user_id: Principal,
-    table_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
+    table_id: TableId,
     tournament_state: &TournamentData,
     currency_type: String,
 ) -> Result<u64, TournamentError> {
@@ -457,7 +461,7 @@ pub async fn handle_rebuy(
                 TournamentError::CanisterCallError(format!("{:?}", e))
             })?;
 
-            add_to_tournament_prize_pool(buy_in_options.reentry.reentry_price)?;
+            add_to_tournament_prize_pool(buy_in_options.reentry.reentry_price, false)?;
 
             Ok(buy_in_options.reentry.reentry_price)
         }
@@ -466,9 +470,9 @@ pub async fn handle_rebuy(
 
 pub async fn handle_addon(
     buy_in_type: &TournamentSizeType,
-    users_canister_id: Principal,
-    user_id: Principal,
-    table_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
+    table_id: TableId,
     currency_type: String,
     tournament: &TournamentData,
 ) -> Result<u64, TournamentError> {
@@ -518,7 +522,7 @@ pub async fn handle_addon(
                 TournamentError::CanisterCallError(format!("{:?}", e))
             })?;
 
-            add_to_tournament_prize_pool(buy_in_options.addon.addon_price)?;
+            add_to_tournament_prize_pool(buy_in_options.addon.addon_price, false)?;
 
             Ok(buy_in_options.addon.addon_price)
         }
@@ -527,8 +531,8 @@ pub async fn handle_addon(
 
 pub async fn handle_lost_user_rebuy_availability(
     buy_in_type: &TournamentSizeType,
-    user_principal: Principal,
-    table_id: Principal,
+    user_principal: WalletPrincipalId,
+    table_id: TableId,
     tournament: &TournamentData,
 ) -> Result<(), TournamentError> {
     match buy_in_type {
@@ -619,8 +623,8 @@ pub async fn handle_lost_user_rebuy_availability(
 }
 
 pub async fn handle_user_kick(
-    table_id: Option<Principal>,
-    user_principal: Principal,
+    table_id: Option<TableId>,
+    user_principal: WalletPrincipalId,
 ) -> Result<(), TournamentError> {
     let tournament = {
         let mut tournament = match TOURNAMENT.lock() {
@@ -651,7 +655,7 @@ pub async fn handle_user_kick(
             .all_players
             .get(&user_principal)
             .ok_or(TournamentError::Other(
-                "User tournament data not found?????????".to_string(),
+                "User tournament data not found".to_string(),
             ))?;
 
     match LEADERBOARD.lock() {
@@ -667,9 +671,8 @@ pub async fn handle_user_kick(
     }
 
     let remaining_players = tournament.current_players.len();
-    let paying_positions = tournament.payout_structure.len();
 
-    if remaining_players <= paying_positions {
+    if remaining_players <= 1 {
         match check_tournament_end(remaining_players).await {
             Ok(_) => {}
             Err(e) => {
@@ -695,7 +698,7 @@ pub async fn handle_user_kick(
 
 pub fn move_player_from_current_players_to_all_players(
     tournament: &mut TournamentData,
-    user_principals: &Vec<Principal>,
+    user_principals: &Vec<WalletPrincipalId>,
 ) -> Result<(), TournamentError> {
     for user_principal in user_principals {
         let user_data = tournament
@@ -754,7 +757,7 @@ pub async fn update_tournament_state(new_state: TournamentState) -> Result<(), T
 }
 
 pub async fn update_tournament_state_wrapper(
-    tournament_id: Principal,
+    tournament_id: TournamentId,
     new_state: TournamentState,
 ) -> Result<(), TournamentIndexError> {
     let tournament_index = {
@@ -771,10 +774,14 @@ pub async fn update_tournament_state_wrapper(
     Ok(())
 }
 
-pub fn add_to_tournament_prize_pool(amount: u64) -> Result<(), TournamentError> {
-    let (prize_pool, rake_amount) = calculate_rake(amount)?;
-    PRIZE_POOL.fetch_add(prize_pool, Ordering::SeqCst);
-    RAKE_AMOUNT.fetch_add(rake_amount, Ordering::SeqCst);
+pub fn add_to_tournament_prize_pool(amount: u64, is_admin: bool) -> Result<(), TournamentError> {
+    if !is_admin {
+        let (prize_pool, rake_amount) = calculate_rake(amount)?;
+        PRIZE_POOL.fetch_add(prize_pool, Ordering::SeqCst);
+        RAKE_AMOUNT.fetch_add(rake_amount, Ordering::SeqCst);
+    } else {
+        PRIZE_POOL.fetch_add(amount, Ordering::SeqCst);
+    }
     Ok(())
 }
 
@@ -797,8 +804,11 @@ pub async fn update_live_leaderboard() -> Result<(), TournamentError> {
                 .iter()
                 .map(|p| {
                     (
-                        *p,
-                        tournament.all_players.get(p).map_or(0, |data| data.chips),
+                        p.0,
+                        tournament
+                            .all_players
+                            .get(&p.0)
+                            .map_or(0, |data| data.chips),
                     )
                 })
                 .collect();
@@ -821,14 +831,14 @@ pub async fn update_live_leaderboard() -> Result<(), TournamentError> {
 
                 for (principal, user_data) in &table.users.users {
                     if tournament.current_players.contains_key(principal) {
-                        player_chips.insert(*principal, user_data.balance);
+                        player_chips.insert(*principal, user_data.balance.0);
 
                         // Update UserTournamentData with latest chip count
                         if let Some(user_tournament_data) =
                             tournament.current_players.get_mut(principal)
                         {
                             if user_tournament_data.chips != user_data.balance {
-                                user_tournament_data.chips = user_data.balance;
+                                user_tournament_data.chips = user_data.balance.0;
                                 updated_tournament = true;
                             }
                         }
@@ -861,7 +871,7 @@ pub async fn update_live_leaderboard() -> Result<(), TournamentError> {
     }
 
     // Convert to sorted vec
-    let mut players_with_chips: Vec<(Principal, u64)> = player_chips.into_iter().collect();
+    let mut players_with_chips: Vec<(WalletPrincipalId, u64)> = player_chips.into_iter().collect();
 
     // Sort by chip count in descending order
     players_with_chips.sort_by(|a, b| b.1.cmp(&a.1));

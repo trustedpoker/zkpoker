@@ -71,7 +71,6 @@
     "@token-icons/core": "^2.7.0",
     "@token-icons/react": "^2.7.0",
     "@types/big.js": "^6.2.2",
-    "@types/country-list": "^2.1.4",
     "@types/google.analytics": "^0.0.46",
     "@types/jest": "^29.5.14",
     "@types/lodash": "^4.17.16",
@@ -81,6 +80,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/react-helmet": "^6.1.11",
+    "@types/serviceworker": "^0.0.92",
     "@types/uuid": "^9.0.8",
     "@vitejs/plugin-react": "^4.0.1",
     "@web3auth/auth-adapter": "^9.5.4",
@@ -161,9 +161,7 @@
     "workbox-expiration": "^7.1.0",
     "workbox-precaching": "^7.1.0",
     "workbox-routing": "^7.1.0",
-    "workbox-strategies": "^7.1.0"
-  },
-  "devDependencies": {
-    "@types/serviceworker": "^0.0.149"
+    "workbox-strategies": "^7.1.0",
+    "@types/country-list": "^2.1.4"
   }
 }

@@ -11,8 +11,9 @@ use table::poker::game::{
 };
 use tournaments::tournaments::{
     tournament_type::{BuyInOptions, TournamentSizeType, TournamentType},
-    types::{NewTournament, NewTournamentSpeedType, PayoutPercentage, TournamentState},
+    types::{NewTournament, NewTournamentSpeedType, TournamentState},
 };
+use user::user::WalletPrincipalId;
 
 use crate::TestEnv;
 
@@ -40,10 +41,7 @@ fn test_late_registration() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 600_000_000_000, // 10 minutes late registration
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -78,7 +76,7 @@ fn test_late_registration() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     // Register minimum required players (5)
@@ -86,11 +84,11 @@ fn test_late_registration() {
         let user = test_env
             .create_user(
                 format!("User {}", i),
-                Principal::self_authenticating(format!("user{}latereg", i)),
+                WalletPrincipalId(Principal::self_authenticating(format!("user{}latereg", i))),
             )
             .expect("Failed to create user");
 
-        test_env.transfer_approve_tokens_for_testing(id, user.principal_id, 1000.0, true);
+        test_env.transfer_approve_tokens_for_testing(id.0, user.principal_id, 1000.0, true);
 
         test_env
             .join_tournament(id, user.users_canister_id, user.principal_id)
@@ -116,11 +114,11 @@ fn test_late_registration() {
     let late_user = test_env
         .create_user(
             "Late User".to_string(),
-            Principal::self_authenticating("lateusertest"),
+            WalletPrincipalId(Principal::self_authenticating("lateusertest")),
         )
         .expect("Failed to create user");
 
-    test_env.transfer_approve_tokens_for_testing(id, late_user.principal_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, late_user.principal_id, 1000.0, true);
 
     for _ in 0..6 {
         test_env.pocket_ic.advance_time(Duration::from_secs(60)); // 2 seconds
@@ -148,11 +146,11 @@ fn test_late_registration() {
     let too_late_user = test_env
         .create_user(
             "Too Late User".to_string(),
-            Principal::self_authenticating("toolateusertest"),
+            WalletPrincipalId(Principal::self_authenticating("toolateusertest")),
         )
         .expect("Failed to create user");
 
-    test_env.transfer_approve_tokens_for_testing(id, too_late_user.principal_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, too_late_user.principal_id, 1000.0, true);
 
     // Should fail after late registration period
     let result = test_env.join_tournament(

@@ -2,8 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use candid::{CandidType, Principal};
 use errors::tournament_error::TournamentError;
+use macros::impl_principal_traits;
 use serde::{Deserialize, Serialize};
-use table::poker::game::table_functions::{table::TableConfig, types::CurrencyType};
+use table::poker::game::table_functions::{
+    table::{TableConfig, TableId},
+    types::CurrencyType,
+};
+use user::user::{UsersCanisterId, WalletPrincipalId};
+
+use crate::tournaments::payouts::{calculate_dynamic_payout_structure, PayoutStructure};
 
 use super::{
     blind_level::{BlindLevel, SpeedType},
@@ -14,19 +21,25 @@ use super::{
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub enum UserTournamentAction {
-    Join(Principal),
-    Leave(Principal),
+    Join(WalletPrincipalId),
+    Leave(WalletPrincipalId),
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, CandidType, PartialEq, Eq, Hash, Copy)]
+pub struct TournamentId(pub Principal);
+
+impl_principal_traits!(TournamentId);
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct TournamentData {
-    pub id: Principal,
+    pub id: TournamentId,
     pub name: String,
     pub description: String,
     pub hero_picture: String,
 
     pub currency: CurrencyType,
     pub buy_in: u64,
+    pub guaranteed_prize_pool: Option<u64>, // For guaranteed tournaments
     pub starting_chips: u64,
     pub speed_type: SpeedType,
 
@@ -34,24 +47,24 @@ pub struct TournamentData {
     pub max_players: u32,
 
     pub late_registration_duration_ns: u64,
-    pub payout_structure: Vec<PayoutPercentage>,
+    pub payout_structure: PayoutStructure,
     pub tournament_type: TournamentType,
 
-    pub current_players: HashMap<Principal, UserTournamentData>,
-    pub all_players: HashMap<Principal, UserTournamentData>,
+    pub current_players: HashMap<WalletPrincipalId, UserTournamentData>,
+    pub all_players: HashMap<WalletPrincipalId, UserTournamentData>,
     pub state: TournamentState,
     pub start_time: u64,
 
     pub table_config: TableConfig,
-    pub tables: HashMap<Principal, TableInfo>, // Key is canister id of table and value is list of players
-    pub sorted_users: Option<Vec<Principal>>,
+    pub tables: HashMap<TableId, TableInfo>, // Key is canister id of table and value is list of players
+    pub sorted_users: Option<Vec<(WalletPrincipalId, u64)>>,
 
     pub require_proof_of_humanity: bool,
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct TableInfo {
-    pub players: HashSet<Principal>,
+    pub players: HashSet<WalletPrincipalId>,
     pub last_balance_time: Option<u64>,
 }
 
@@ -73,18 +86,19 @@ impl TableInfo {
 impl Default for TournamentData {
     fn default() -> Self {
         Self {
-            id: Principal::anonymous(),
+            id: TournamentId::default(),
             name: "".to_string(),
             description: "".to_string(),
             hero_picture: "".to_string(),
             currency: CurrencyType::Fake,
             buy_in: 0,
+            guaranteed_prize_pool: None,
             starting_chips: 0,
             speed_type: SpeedType::new_default(0, 0),
             min_players: 0,
             max_players: 0,
             late_registration_duration_ns: 0,
-            payout_structure: vec![],
+            payout_structure: PayoutStructure::default(),
             tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
                 BuyInOptions::new_freezout(),
             )),
@@ -101,8 +115,9 @@ impl Default for TournamentData {
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+#[derive(Default)]
 pub struct UserTournamentData {
-    pub users_canister_principal: Principal,
+    pub users_canister_principal: UsersCanisterId,
     pub chips: u64,
     pub position: u32,
     pub reentries: u32,
@@ -111,7 +126,7 @@ pub struct UserTournamentData {
 }
 
 impl UserTournamentData {
-    pub fn new(users_canister_principal: Principal, chips: u64, position: u32) -> Self {
+    pub fn new(users_canister_principal: UsersCanisterId, chips: u64, position: u32) -> Self {
         Self {
             users_canister_principal,
             chips,
@@ -123,24 +138,6 @@ impl UserTournamentData {
     }
 }
 
-impl Default for UserTournamentData {
-    fn default() -> Self {
-        Self {
-            users_canister_principal: Principal::anonymous(),
-            chips: 0,
-            position: 0,
-            reentries: 0,
-            addons: 0,
-            rebuys: 0,
-        }
-    }
-}
-
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct PayoutPercentage {
-    pub position: u16,
-    pub percentage: u8, // 0-100
-}
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TournamentState {
@@ -177,12 +174,12 @@ pub struct NewTournament {
     pub hero_picture: String,
     pub currency: CurrencyType,
     pub buy_in: u64,
+    pub guaranteed_prize_pool: Option<u64>, // For guaranteed tournaments
     pub starting_chips: u64,
     pub speed_type: NewTournamentSpeedType,
     pub min_players: u8,
     pub max_players: u32,
     pub late_registration_duration_ns: u64,
-    pub payout_structure: Vec<PayoutPercentage>,
     pub tournament_type: TournamentType,
     pub start_time: u64,
     pub require_proof_of_humanity: bool,
@@ -190,7 +187,7 @@ pub struct NewTournament {
 
 impl TournamentData {
     pub fn new(
-        id: Principal,
+        id: TournamentId,
         mut new_tournament_data: NewTournament,
         table_config: TableConfig,
     ) -> Result<Self, TournamentError> {
@@ -299,12 +296,13 @@ impl TournamentData {
             hero_picture: new_tournament_data.hero_picture,
             currency: new_tournament_data.currency,
             buy_in: new_tournament_data.buy_in,
+            guaranteed_prize_pool: new_tournament_data.guaranteed_prize_pool,
             starting_chips: new_tournament_data.starting_chips,
             speed_type,
             min_players: new_tournament_data.min_players,
             max_players: new_tournament_data.max_players,
             late_registration_duration_ns: new_tournament_data.late_registration_duration_ns,
-            payout_structure: new_tournament_data.payout_structure,
+            payout_structure: PayoutStructure::default(),
             tournament_type,
             current_players: HashMap::new(),
             all_players: HashMap::new(),
@@ -320,7 +318,7 @@ impl TournamentData {
     }
 
     pub async fn new_spin_and_go(
-        id: Principal,
+        id: TournamentId,
         new_tournament_data: NewTournament,
         table_config: TableConfig,
     ) -> Result<(Self, u64), TournamentError> {
@@ -352,7 +350,9 @@ impl TournamentData {
         );
 
         // Set payout structure from the selected multiplier
-        tournament.payout_structure = selected_multiplier.payout_structure;
+        tournament.payout_structure = PayoutStructure {
+            payouts: selected_multiplier.payout_structure,
+        };
 
         // No late registration for Spin and Go
         tournament.late_registration_duration_ns = 0;
@@ -417,15 +417,6 @@ impl TournamentData {
             ));
         };
 
-        // Validate payout structure
-        let total_percentage: u8 = self.payout_structure.iter().map(|p| p.percentage).sum();
-
-        if total_percentage != 100 {
-            return Err(TournamentError::InvalidConfiguration(
-                "Payout percentages must sum to 100".to_string(),
-            ));
-        }
-
         match &self.tournament_type {
             TournamentType::BuyIn(TournamentSizeType::SingleTable(option))
             | TournamentType::BuyIn(TournamentSizeType::MultiTable(option, _))
@@ -449,7 +440,7 @@ impl TournamentData {
 
     pub fn get_user_tournament_data(
         &self,
-        user_principal: &Principal,
+        user_principal: &WalletPrincipalId,
     ) -> Result<&UserTournamentData, TournamentError> {
         match self
             .current_players
@@ -469,7 +460,7 @@ impl TournamentData {
 
     pub fn get_user_tournament_data_mut(
         &mut self,
-        user_principal: &Principal,
+        user_principal: &WalletPrincipalId,
     ) -> Result<&mut UserTournamentData, TournamentError> {
         match self
             .current_players
@@ -485,6 +476,16 @@ impl TournamentData {
                     "Could not get user tournament data".to_string(),
                 )),
         }
+    }
+
+    pub fn calculate_payouts(&mut self) -> Result<(), TournamentError> {
+        let total_players = self.all_players.len() as u32;
+        let payout_structure =
+            calculate_dynamic_payout_structure(total_players, &self.tournament_type);
+
+        self.payout_structure = payout_structure;
+
+        Ok(())
     }
 }
 

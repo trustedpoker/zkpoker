@@ -8,6 +8,7 @@ import {
 } from "@declarations/table_index/table_index.did";
 import {
   PayoutPercentage,
+  PayoutStructure,
   TournamentState,
 } from "@declarations/tournament_canister/tournament_canister.did";
 
@@ -61,16 +62,16 @@ export const IsSamePayoutPercentage = (
 ) => a?.percentage === b?.percentage && a?.position === b?.position;
 
 export const IsSamePayoutStructure = (
-  a?: PayoutPercentage[],
-  b?: PayoutPercentage[]
+  a?: PayoutStructure,
+  b?: PayoutStructure
 ) => {
   if (a === undefined && b === undefined) return true;
   if (a === undefined || b === undefined) return false;
 
-  if (a.length !== b.length) return false;
+  if (a.payouts.length !== b.payouts.length) return false;
   return (
-    a.every((payout, index) => IsSamePayoutPercentage(payout, b[index])) &&
-    b.every((payout, index) => IsSamePayoutPercentage(payout, a[index]))
+    a.payouts.every((payout, index) => IsSamePayoutPercentage(payout, b.payouts[index])) &&
+    b.payouts.every((payout, index) => IsSamePayoutPercentage(payout, a.payouts[index]))
   );
 };
 

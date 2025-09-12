@@ -10,12 +10,18 @@ export type SidebarItem = {
   title: ReactNode;
   value: string;
   disabled?: boolean;
+  /**
+   * If true, the item has subroutes and should be highlighted when any of its subroutes are active.
+   */
+  hasSubroutes?: boolean;
   hidden?: boolean;
   content?: ReactNode;
 };
 
 const SidebarItemComponent = memo<SidebarItem & { activeItemValue?: string; setActiveItem?(value: string): void; }>(({ activeItemValue, setActiveItem, ...item }) => {
-  const match = useMatch(item.value);
+  const match = useMatch(
+    item.hasSubroutes ? `${item.value}/*` : item.value,
+  );
 
   return (
     <Interactable

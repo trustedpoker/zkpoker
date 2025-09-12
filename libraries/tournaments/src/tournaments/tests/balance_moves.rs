@@ -6,6 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     time::SystemTime,
 };
+use table::poker::game::table_functions::table::TableId;
 
 fn get_current_time_ns() -> u64 {
     SystemTime::now()
@@ -21,7 +22,9 @@ fn create_test_principal(id: &str) -> Principal {
 fn create_test_table_info(player_count: usize) -> TableInfo {
     let mut players = HashSet::new();
     for i in 0..player_count {
-        players.insert(create_test_principal(&format!("user{}", i)));
+        players.insert(user::user::WalletPrincipalId(create_test_principal(
+            &format!("user{}", i),
+        )));
     }
     TableInfo {
         players,
@@ -34,9 +37,18 @@ fn test_balanced_tables() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    tables.insert(create_test_principal("table1"), create_test_table_info(6));
-    tables.insert(create_test_principal("table2"), create_test_table_info(6));
-    tables.insert(create_test_principal("table3"), create_test_table_info(6));
+    tables.insert(
+        TableId(create_test_principal("table1")),
+        create_test_table_info(6),
+    );
+    tables.insert(
+        TableId(create_test_principal("table2")),
+        create_test_table_info(6),
+    );
+    tables.insert(
+        TableId(create_test_principal("table3")),
+        create_test_table_info(6),
+    );
 
     let moves = balancer.get_balance_moves(&mut tables);
     assert_eq!(
@@ -51,8 +63,8 @@ fn test_understaffed_table() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(3)); // Understaffed
     tables.insert(table2, create_test_table_info(8)); // Overstaffed
@@ -76,9 +88,9 @@ fn test_multiple_understaffed_tables() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
-    let table3 = create_test_principal("table3");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
+    let table3 = TableId(create_test_principal("table3"));
 
     tables.insert(table1, create_test_table_info(3)); // Understaffed
     tables.insert(table2, create_test_table_info(3)); // Understaffed
@@ -98,8 +110,8 @@ fn test_recently_balanced_table() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     let understaffed = create_test_table_info(3);
     tables.insert(table1, understaffed);
@@ -121,8 +133,8 @@ fn test_large_imbalance() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(4)); // Minimum
     tables.insert(table2, create_test_table_info(8)); // Maximum
@@ -138,8 +150,8 @@ fn test_empty_table() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(0)); // Empty
     tables.insert(table2, create_test_table_info(8)); // Overstaffed
@@ -153,7 +165,10 @@ fn test_single_table() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    tables.insert(create_test_principal("table1"), create_test_table_info(6));
+    tables.insert(
+        TableId(create_test_principal("table1")),
+        create_test_table_info(6),
+    );
 
     let moves = balancer.get_balance_moves(&mut tables);
     assert_eq!(moves.len(), 0, "No moves possible with single table");
@@ -164,8 +179,8 @@ fn test_near_balance() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(6));
@@ -179,9 +194,9 @@ fn test_near_balance_2() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
-    let table3 = create_test_principal("table3");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
+    let table3 = TableId(create_test_principal("table3"));
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(6));
@@ -196,10 +211,10 @@ fn test_near_balance_3() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
-    let table3 = create_test_principal("table3");
-    let table4 = create_test_principal("table4");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
+    let table3 = TableId(create_test_principal("table3"));
+    let table4 = TableId(create_test_principal("table4"));
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(6));
@@ -224,11 +239,11 @@ fn test_varied_player_counts_basic() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100)); // Testing with min=3, max=7
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 6 players
-    let table5 = create_test_principal("table5"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 6 players
+    let table5 = TableId(create_test_principal("table5")); // 7 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(4));
@@ -249,9 +264,9 @@ fn test_low_min_high_max() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100)); // Testing with min=2, max=8
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(5));
@@ -270,9 +285,9 @@ fn test_tight_range() {
     let balancer = TableBalancer::new(4, 6, &SpeedType::new_regular(1000, 100)); // Testing with min=4, max=6
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players (understaffed)
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 7 players (overstaffed)
+    let table1 = TableId(create_test_principal("table1")); // 3 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players (overstaffed)
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(4));
@@ -291,9 +306,9 @@ fn test_multiple_identical_tables() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100)); // Testing with min=3, max=7
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 6 players
-    let table2 = create_test_principal("table2"); // 6 players
-    let table3 = create_test_principal("table3"); // 3 players
+    let table1 = TableId(create_test_principal("table1")); // 6 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players
+    let table3 = TableId(create_test_principal("table3")); // 3 players
 
     tables.insert(table1, create_test_table_info(6));
     tables.insert(table2, create_test_table_info(6));
@@ -313,10 +328,10 @@ fn test_near_maximum_variation() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100)); // Wide range
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 8 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 8 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(4));
@@ -336,8 +351,8 @@ fn test_small_variation() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100)); // Wide range
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 7 players
-    let table2 = create_test_principal("table2"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 7 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
 
     tables.insert(table1, create_test_table_info(7));
     tables.insert(table2, create_test_table_info(5));
@@ -355,9 +370,9 @@ fn test_with_empty_and_full() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 0 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 0 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
 
     tables.insert(table1, create_test_table_info(0));
     tables.insert(table2, create_test_table_info(4));
@@ -375,8 +390,8 @@ fn test_min_equals_max() {
     let balancer = TableBalancer::new(5, 5, &SpeedType::new_regular(1000, 100)); // Testing edge case where min=max
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(6));
@@ -391,8 +406,8 @@ fn test_consolidation_basic_two() {
     let balancer = TableBalancer::new(2, 5, &SpeedType::new_regular(1000, 100)); // Testing edge case where min=max
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(1));
@@ -407,8 +422,8 @@ fn test_consolidation_basic_three() {
     let balancer = TableBalancer::new(2, 5, &SpeedType::new_regular(1000, 100)); // Testing edge case where min=max
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(1));
     tables.insert(table2, create_test_table_info(1));
@@ -422,8 +437,8 @@ fn test_consolidation_basic_four() {
     let balancer = TableBalancer::new(2, 3, &SpeedType::new_regular(1000, 100)); // Testing edge case where min=max
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1");
-    let table2 = create_test_principal("table2");
+    let table1 = TableId(create_test_principal("table1"));
+    let table2 = TableId(create_test_principal("table2"));
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(1));
@@ -438,9 +453,18 @@ fn test_all_tables_below_min() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    tables.insert(create_test_principal("table1"), create_test_table_info(3));
-    tables.insert(create_test_principal("table2"), create_test_table_info(2));
-    tables.insert(create_test_principal("table3"), create_test_table_info(3));
+    tables.insert(
+        TableId(create_test_principal("table1")),
+        create_test_table_info(3),
+    );
+    tables.insert(
+        TableId(create_test_principal("table2")),
+        create_test_table_info(2),
+    );
+    tables.insert(
+        TableId(create_test_principal("table3")),
+        create_test_table_info(3),
+    );
 
     let moves = balancer.get_balance_moves(&mut tables);
     assert_eq!(
@@ -451,10 +475,10 @@ fn test_all_tables_below_min() {
     assert!(
         moves
             .iter()
-            .all(|(_, to)| *to == create_test_principal("table3"))
+            .all(|(_, to)| *to == TableId(create_test_principal("table3")))
             || moves
                 .iter()
-                .all(|(_, to)| *to == create_test_principal("table1")),
+                .all(|(_, to)| *to == TableId(create_test_principal("table1"))),
         "All moves should go to table1 or table3"
     );
 }
@@ -464,9 +488,18 @@ fn test_all_tables_above_max() {
     let balancer = TableBalancer::new(2, 5, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    tables.insert(create_test_principal("table1"), create_test_table_info(6));
-    tables.insert(create_test_principal("table2"), create_test_table_info(7));
-    tables.insert(create_test_principal("table3"), create_test_table_info(6));
+    tables.insert(
+        TableId(create_test_principal("table1")),
+        create_test_table_info(6),
+    );
+    tables.insert(
+        TableId(create_test_principal("table2")),
+        create_test_table_info(7),
+    );
+    tables.insert(
+        TableId(create_test_principal("table3")),
+        create_test_table_info(6),
+    );
 
     let moves = balancer.get_balance_moves(&mut tables);
     assert_eq!(moves.len(), 0, "No moves when no understaffed tables exist");
@@ -477,13 +510,13 @@ fn test_consolidation_basic() {
     let balancer = TableBalancer::new(2, 6, &SpeedType::new_regular(1000, 100)); // min=2, max=6
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 4 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 4 players
 
-    println!("table1: {:?}", table1.to_text());
-    println!("table2: {:?}", table2.to_text());
-    println!("table3: {:?}", table3.to_text());
+    println!("table1: {:?}", table1.0.to_text());
+    println!("table2: {:?}", table2.0.to_text());
+    println!("table3: {:?}", table3.0.to_text());
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(4));
@@ -504,9 +537,9 @@ fn test_consolidation_with_understaffed() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100)); // min=3, max=7
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players (understaffed)
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(3));
@@ -525,9 +558,9 @@ fn test_consolidation_all_low() {
     let balancer = TableBalancer::new(4, 8, &SpeedType::new_regular(1000, 100)); // min=4, max=8
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 4 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 4 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(3));
@@ -551,9 +584,9 @@ fn test_consolidation_near_max() {
     let balancer = TableBalancer::new(2, 5, &SpeedType::new_regular(1000, 100)); // min=2, max=5
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(3));
@@ -579,9 +612,9 @@ fn test_consolidation_multiple_sources() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100)); // min=3, max=6
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players (understaffed)
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(4));
@@ -601,9 +634,9 @@ fn test_single_player_table_consolidation() {
     let balancer = TableBalancer::new(3, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 1 player (should be emptied)
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 1 player (should be emptied)
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
 
     tables.insert(table1, create_test_table_info(1));
     tables.insert(table2, create_test_table_info(5));
@@ -624,13 +657,13 @@ fn test_consolidation_distribute_players() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players (understaffed)
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 3 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 3 players
 
-    println!("table1: {:?}", table1.to_text());
-    println!("table2: {:?}", table2.to_text());
-    println!("table3: {:?}", table3.to_text());
+    println!("table1: {:?}", table1.0.to_text());
+    println!("table2: {:?}", table2.0.to_text());
+    println!("table3: {:?}", table3.0.to_text());
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(3));
@@ -649,7 +682,7 @@ fn test_consolidation_distribute_players() {
         "moves: {:#?}",
         moves
             .iter()
-            .map(|(a, b)| (a.to_text(), b.to_text()))
+            .map(|(a, b)| (a.0.to_text(), b.0.to_text()))
             .collect::<Vec<_>>()
     );
 
@@ -665,13 +698,13 @@ fn test_consolidation_distribute_players_two() {
     let balancer = TableBalancer::new(2, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players (understaffed)
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 4 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 4 players
 
-    println!("table1: {:?}", table1.to_text());
-    println!("table2: {:?}", table2.to_text());
-    println!("table3: {:?}", table3.to_text());
+    println!("table1: {:?}", table1.0.to_text());
+    println!("table2: {:?}", table2.0.to_text());
+    println!("table3: {:?}", table3.0.to_text());
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(4));
@@ -690,7 +723,7 @@ fn test_consolidation_distribute_players_two() {
         "moves: {:#?}",
         moves
             .iter()
-            .map(|(a, b)| (a.to_text(), b.to_text()))
+            .map(|(a, b)| (a.0.to_text(), b.0.to_text()))
             .collect::<Vec<_>>()
     );
 
@@ -708,9 +741,9 @@ fn test_consolidation_medium_tables() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 8 players (maximum)
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 8 players (maximum)
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(4));
@@ -749,9 +782,9 @@ fn test_consolidation_multiple_small_tables() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players
-    let table2 = create_test_principal("table2"); // 2 players
-    let table3 = create_test_principal("table3"); // 2 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players
+    let table2 = TableId(create_test_principal("table2")); // 2 players
+    let table3 = TableId(create_test_principal("table3")); // 2 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(2));
@@ -767,7 +800,7 @@ fn test_consolidation_multiple_small_tables() {
     );
 
     // Determine which table is the destination
-    let destinations: Vec<Principal> = moves.iter().map(|(_, to)| *to).collect();
+    let destinations: Vec<TableId> = moves.iter().map(|(_, to)| *to).collect();
     let mut destination_counts = HashMap::new();
     for dest in destinations {
         *destination_counts.entry(dest).or_insert(0) += 1;
@@ -796,8 +829,8 @@ fn test_no_move_to_full_table() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 6 players (already at max)
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players (already at max)
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(6));
@@ -816,9 +849,9 @@ fn test_no_move_to_near_full_table() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 6 players (can only take 1 more)
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players (can only take 1 more)
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(6));
@@ -843,9 +876,18 @@ fn test_all_tables_full() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    tables.insert(create_test_principal("table1"), create_test_table_info(6));
-    tables.insert(create_test_principal("table2"), create_test_table_info(6));
-    tables.insert(create_test_principal("table3"), create_test_table_info(6));
+    tables.insert(
+        TableId(create_test_principal("table1")),
+        create_test_table_info(6),
+    );
+    tables.insert(
+        TableId(create_test_principal("table2")),
+        create_test_table_info(6),
+    );
+    tables.insert(
+        TableId(create_test_principal("table3")),
+        create_test_table_info(6),
+    );
 
     let moves = balancer.get_balance_moves(&mut tables);
 
@@ -863,9 +905,9 @@ fn test_unbalanced_full_tables() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players (understaffed)
-    let table2 = create_test_principal("table2"); // 6 players (full)
-    let table3 = create_test_principal("table3"); // 6 players (full)
+    let table1 = TableId(create_test_principal("table1")); // 2 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 6 players (full)
+    let table3 = TableId(create_test_principal("table3")); // 6 players (full)
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(6));
@@ -887,10 +929,10 @@ fn test_mixed_capacities() {
     let balancer = TableBalancer::new(3, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players (min capacity)
-    let table2 = create_test_principal("table2"); // 8 players (max capacity)
-    let table3 = create_test_principal("table3"); // 7 players (near max)
-    let table4 = create_test_principal("table4"); // 5 players (mid capacity)
+    let table1 = TableId(create_test_principal("table1")); // 3 players (min capacity)
+    let table2 = TableId(create_test_principal("table2")); // 8 players (max capacity)
+    let table3 = TableId(create_test_principal("table3")); // 7 players (near max)
+    let table4 = TableId(create_test_principal("table4")); // 5 players (mid capacity)
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(8));
@@ -922,9 +964,9 @@ fn test_full_and_empty_tables() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 0 players (empty)
-    let table2 = create_test_principal("table2"); // 6 players (full)
-    let table3 = create_test_principal("table3"); // 6 players (full)
+    let table1 = TableId(create_test_principal("table1")); // 0 players (empty)
+    let table2 = TableId(create_test_principal("table2")); // 6 players (full)
+    let table3 = TableId(create_test_principal("table3")); // 6 players (full)
 
     tables.insert(table1, create_test_table_info(0));
     tables.insert(table2, create_test_table_info(6));
@@ -949,8 +991,8 @@ fn test_full_table_with_recently_balanced() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 6 players (full)
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players (full)
 
     tables.insert(table1, create_test_table_info(3));
 
@@ -977,9 +1019,9 @@ fn test_final_table_consolidation_with_full_table() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players
-    let table2 = create_test_principal("table2"); // 2 players
-    let table3 = create_test_principal("table3"); // 6 players (full)
+    let table1 = TableId(create_test_principal("table1")); // 2 players
+    let table2 = TableId(create_test_principal("table2")); // 2 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players (full)
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(2));
@@ -1008,9 +1050,9 @@ fn test_respect_max_players_in_multiple_moves() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 8 players (overstaffed)
-    let table2 = create_test_principal("table2"); // 5 players (one space left)
-    let table3 = create_test_principal("table3"); // 3 players (min capacity)
+    let table1 = TableId(create_test_principal("table1")); // 8 players (overstaffed)
+    let table2 = TableId(create_test_principal("table2")); // 5 players (one space left)
+    let table3 = TableId(create_test_principal("table3")); // 3 players (min capacity)
 
     tables.insert(table1, create_test_table_info(8));
     tables.insert(table2, create_test_table_info(5));
@@ -1049,10 +1091,10 @@ fn test_no_move_to_near_full_table_multiple_sources() {
     let mut tables = HashMap::new();
 
     // Three tables with different counts
-    let table1 = create_test_principal("table1"); // 9 players (overstaffed)
-    let table2 = create_test_principal("table2"); // 6 players (can only take 1 more)
-    let table3 = create_test_principal("table3"); // 8 players (overstaffed)
-    let table4 = create_test_principal("table4"); // 2 players (understaffed)
+    let table1 = TableId(create_test_principal("table1")); // 9 players (overstaffed)
+    let table2 = TableId(create_test_principal("table2")); // 6 players (can only take 1 more)
+    let table3 = TableId(create_test_principal("table3")); // 8 players (overstaffed)
+    let table4 = TableId(create_test_principal("table4")); // 2 players (understaffed)
 
     tables.insert(table1, create_test_table_info(9));
     tables.insert(table2, create_test_table_info(6));
@@ -1076,9 +1118,9 @@ fn test_no_move_to_near_full_table_consecutive_balances() {
     let balancer = TableBalancer::new(3, 7, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 6 players (can only take 1 more)
-    let table3 = create_test_principal("table3"); // 9 players (overstaffed)
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players (can only take 1 more)
+    let table3 = TableId(create_test_principal("table3")); // 9 players (overstaffed)
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(6));
@@ -1121,10 +1163,10 @@ fn test_near_full_with_multiple_destinations() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 10 players (overstaffed)
-    let table2 = create_test_principal("table2"); // 5 players (one space left)
-    let table3 = create_test_principal("table3"); // 5 players (one space left)
-    let table4 = create_test_principal("table4"); // 4 players (two spaces left)
+    let table1 = TableId(create_test_principal("table1")); // 10 players (overstaffed)
+    let table2 = TableId(create_test_principal("table2")); // 5 players (one space left)
+    let table3 = TableId(create_test_principal("table3")); // 5 players (one space left)
+    let table4 = TableId(create_test_principal("table4")); // 4 players (two spaces left)
 
     tables.insert(table1, create_test_table_info(10));
     tables.insert(table2, create_test_table_info(5));
@@ -1164,10 +1206,10 @@ fn test_mixed_capacities_with_consolidation() {
     let balancer = TableBalancer::new(3, 6, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 2 players (understaffed)
-    let table2 = create_test_principal("table2"); // 6 players (max capacity)
-    let table3 = create_test_principal("table3"); // 5 players (near max)
-    let table4 = create_test_principal("table4"); // 2 players (understaffed)
+    let table1 = TableId(create_test_principal("table1")); // 2 players (understaffed)
+    let table2 = TableId(create_test_principal("table2")); // 6 players (max capacity)
+    let table3 = TableId(create_test_principal("table3")); // 5 players (near max)
+    let table4 = TableId(create_test_principal("table4")); // 2 players (understaffed)
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(6));
@@ -1210,9 +1252,9 @@ fn test_balanced_tables_with_uneven_distribution() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 7 players
-    let table3 = create_test_principal("table3"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 7 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(7));
@@ -1249,9 +1291,9 @@ fn test_consolidation_with_655_distribution() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 6 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 6 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(6));
     tables.insert(table2, create_test_table_info(5));
@@ -1288,9 +1330,9 @@ fn test_consolidation_with_555_distribution() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(5));
@@ -1336,9 +1378,9 @@ fn test_log_scenario_april_29_192936() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 1 player
-    let table2 = create_test_principal("table2"); // 6 players
-    let table3 = create_test_principal("table3"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 1 player
+    let table2 = TableId(create_test_principal("table2")); // 6 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
 
     tables.insert(table1, create_test_table_info(1));
     tables.insert(table2, create_test_table_info(6));
@@ -1366,10 +1408,10 @@ fn test_log_scenario_april_29_193257() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 1 player
-    let table2 = create_test_principal("table2"); // 8 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 1 player
+    let table2 = TableId(create_test_principal("table2")); // 8 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 7 players
 
     tables.insert(table1, create_test_table_info(1));
     tables.insert(table2, create_test_table_info(8));
@@ -1398,8 +1440,8 @@ fn test_log_scenario_april_29_193701() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 8 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 8 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(8));
@@ -1424,9 +1466,9 @@ fn test_log_scenario_april_29_194410() {
     let balancer = TableBalancer::new(2, 8, &SpeedType::new_regular(1000, 100));
     let mut tables = HashMap::new();
 
-    let table1 = create_test_principal("table1"); // 7 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 7 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
 
     tables.insert(table1, create_test_table_info(7));
     tables.insert(table2, create_test_table_info(5));
@@ -1449,11 +1491,11 @@ fn test_consolidation_5_to_4_tables() {
     let mut tables = HashMap::new();
 
     // Create 5 tables with varying player counts
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 6 players
-    let table5 = create_test_principal("table5"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 6 players
+    let table5 = TableId(create_test_principal("table5")); // 6 players
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(5));
@@ -1513,12 +1555,12 @@ fn test_consolidation_6_to_5_tables() {
     let mut tables = HashMap::new();
 
     // Create 6 tables with varying player counts
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 5 players
-    let table5 = create_test_principal("table5"); // 5 players
-    let table6 = create_test_principal("table6"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 5 players
+    let table5 = TableId(create_test_principal("table5")); // 5 players
+    let table6 = TableId(create_test_principal("table6")); // 6 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(4));
@@ -1579,11 +1621,11 @@ fn test_consolidation_with_near_max_tables() {
     let mut tables = HashMap::new();
 
     // Create tables with some near max capacity
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 7 players (near max)
-    let table3 = create_test_principal("table3"); // 7 players (near max)
-    let table4 = create_test_principal("table4"); // 5 players
-    let table5 = create_test_principal("table5"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 7 players (near max)
+    let table3 = TableId(create_test_principal("table3")); // 7 players (near max)
+    let table4 = TableId(create_test_principal("table4")); // 5 players
+    let table5 = TableId(create_test_principal("table5")); // 5 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(7));
@@ -1626,11 +1668,11 @@ fn test_gradual_consolidation_with_multiple_candidates() {
     let mut tables = HashMap::new();
 
     // Create multiple tables with the same low player count
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 3 players
-    let table4 = create_test_principal("table4"); // 6 players
-    let table5 = create_test_principal("table5"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 3 players
+    let table4 = TableId(create_test_principal("table4")); // 6 players
+    let table5 = TableId(create_test_principal("table5")); // 6 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(3));
@@ -1672,11 +1714,11 @@ fn test_consolidation_with_exact_fit() {
     let mut tables = HashMap::new();
 
     // Create a scenario where consolidation results in exactly filled tables
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 5 players
-    let table5 = create_test_principal("table5"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 5 players
+    let table5 = TableId(create_test_principal("table5")); // 6 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(5));
@@ -1733,11 +1775,11 @@ fn test_consolidation_with_even_distribution() {
     let mut tables = HashMap::new();
 
     // Create 5 tables with even distribution
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 5 players
-    let table5 = create_test_principal("table5"); // 5 players
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 5 players
+    let table5 = TableId(create_test_principal("table5")); // 5 players
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(5));
@@ -1790,13 +1832,13 @@ fn test_consolidation_7_to_6_tables() {
     let mut tables = HashMap::new();
 
     // Create 7 tables
-    let table1 = create_test_principal("table1"); // 4 players
-    let table2 = create_test_principal("table2"); // 4 players
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 5 players
-    let table5 = create_test_principal("table5"); // 5 players
-    let table6 = create_test_principal("table6"); // 6 players
-    let table7 = create_test_principal("table7"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 4 players
+    let table2 = TableId(create_test_principal("table2")); // 4 players
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 5 players
+    let table5 = TableId(create_test_principal("table5")); // 5 players
+    let table6 = TableId(create_test_principal("table6")); // 6 players
+    let table7 = TableId(create_test_principal("table7")); // 6 players
 
     tables.insert(table1, create_test_table_info(4));
     tables.insert(table2, create_test_table_info(4));
@@ -1840,11 +1882,11 @@ fn test_consolidation_with_one_player_difference() {
     let mut tables = HashMap::new();
 
     // Create tables with a one-player difference
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 6 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 6 players
-    let table5 = create_test_principal("table5"); // 6 players
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 6 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 6 players
+    let table5 = TableId(create_test_principal("table5")); // 6 players
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(6));
@@ -1886,11 +1928,11 @@ fn test_consolidation_with_multiple_min_and_max_tables() {
     let mut tables = HashMap::new();
 
     // Create tables with both minimum and maximum player counts
-    let table1 = create_test_principal("table1"); // 2 players (minimum)
-    let table2 = create_test_principal("table2"); // 2 players (minimum)
-    let table3 = create_test_principal("table3"); // 5 players
-    let table4 = create_test_principal("table4"); // 8 players (maximum)
-    let table5 = create_test_principal("table5"); // 8 players (maximum)
+    let table1 = TableId(create_test_principal("table1")); // 2 players (minimum)
+    let table2 = TableId(create_test_principal("table2")); // 2 players (minimum)
+    let table3 = TableId(create_test_principal("table3")); // 5 players
+    let table4 = TableId(create_test_principal("table4")); // 8 players (maximum)
+    let table5 = TableId(create_test_principal("table5")); // 8 players (maximum)
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(2));
@@ -1940,10 +1982,10 @@ fn test_scenario_with_uneven_distribution_4_tables() {
     let mut tables = HashMap::new();
 
     // Create an uneven distribution of players
-    let table1 = create_test_principal("table1"); // 3 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 7 players
-    let table4 = create_test_principal("table4"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 3 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
+    let table4 = TableId(create_test_principal("table4")); // 7 players
 
     tables.insert(table1, create_test_table_info(3));
     tables.insert(table2, create_test_table_info(5));
@@ -1990,12 +2032,12 @@ fn test_scenario_57777_distribution() {
     let mut tables = HashMap::new();
 
     // Create a scenario with one less populated table and many tables at capacity
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 7 players
-    let table3 = create_test_principal("table3"); // 7 players
-    let table4 = create_test_principal("table4"); // 7 players
-    let table5 = create_test_principal("table5"); // 7 players
-    let table6 = create_test_principal("table6"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 7 players
+    let table3 = TableId(create_test_principal("table3")); // 7 players
+    let table4 = TableId(create_test_principal("table4")); // 7 players
+    let table5 = TableId(create_test_principal("table5")); // 7 players
+    let table6 = TableId(create_test_principal("table6")); // 7 players
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(7));
@@ -2058,11 +2100,11 @@ fn test_scenario_55788_distribution() {
     let mut tables = HashMap::new();
 
     // Create a scenario with mixed distribution including max tables
-    let table1 = create_test_principal("table1"); // 5 players
-    let table2 = create_test_principal("table2"); // 5 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 8 players (max)
-    let table5 = create_test_principal("table5"); // 8 players (max)
+    let table1 = TableId(create_test_principal("table1")); // 5 players
+    let table2 = TableId(create_test_principal("table2")); // 5 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 8 players (max)
+    let table5 = TableId(create_test_principal("table5")); // 8 players (max)
 
     tables.insert(table1, create_test_table_info(5));
     tables.insert(table2, create_test_table_info(5));
@@ -2120,10 +2162,10 @@ fn test_specific_edge_case_2367_distribution() {
     let mut tables = HashMap::new();
 
     // Create a specific edge case scenario
-    let table1 = create_test_principal("table1"); // 2 players (min)
-    let table2 = create_test_principal("table2"); // 3 players
-    let table3 = create_test_principal("table3"); // 6 players
-    let table4 = create_test_principal("table4"); // 7 players
+    let table1 = TableId(create_test_principal("table1")); // 2 players (min)
+    let table2 = TableId(create_test_principal("table2")); // 3 players
+    let table3 = TableId(create_test_principal("table3")); // 6 players
+    let table4 = TableId(create_test_principal("table4")); // 7 players
 
     tables.insert(table1, create_test_table_info(2));
     tables.insert(table2, create_test_table_info(3));

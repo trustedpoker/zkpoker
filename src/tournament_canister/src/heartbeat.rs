@@ -1,6 +1,5 @@
 use std::{sync::atomic::Ordering, time::Duration};
 
-use candid::Principal;
 use errors::tournament_error::TournamentError;
 use intercanister_call_wrappers::tournament_canister::{
     get_and_remove_from_pool_wrapper, handle_cancelled_tournament_wrapper, update_blinds,
@@ -9,24 +8,24 @@ use table::table_canister::{join_table, pause_table_for_addon_wrapper, resume_ta
 use tournaments::tournaments::{
     table_balancing::calculate_players_per_table,
     tournament_type::{TournamentSizeType, TournamentType},
-    types::{TableInfo, TournamentData, TournamentState},
+    types::{TableInfo, TournamentData, TournamentId, TournamentState},
 };
+use user::user::{UsersCanisterId, WalletPrincipalId};
 
 use crate::{
     table_balancing::check_and_balance_tables,
     utils::{
-        create_table, handle_cycle_check_async, update_live_leaderboard, update_tournament_state,
-        LEADERBOARD_UPDATE_INTERVAL,
+        create_table, handle_cycle_check, handle_cycle_check_async, update_live_leaderboard, update_tournament_state, LEADERBOARD_UPDATE_INTERVAL
     },
     LAST_HEARTBEAT, LAST_LEADERBOARD_UPDATE, TOURNAMENT, TOURNAMENT_INDEX, TOURNAMENT_START_TIME,
 };
 
 const MIN_HEARTBEAT_INTERVAL: u64 = 60_000_000_000; // 1 minute in nanoseconds
+const ONE_DAY_NS: u64 = 86_400_000_000_000; // 1 day in nanoseconds
+const ONE_HOUR_NS: u64 = 3_600_000_000_000; // 1 hour in nanoseconds
 
 #[ic_cdk::heartbeat]
 async fn heartbeat() {
-    let start_time = TOURNAMENT_START_TIME.load(Ordering::Relaxed);
-
     let current_time = ic_cdk::api::time();
     let last_beat = LAST_HEARTBEAT.load(Ordering::Relaxed);
 
@@ -34,7 +33,13 @@ async fn heartbeat() {
         return;
     }
 
+    let start_time = TOURNAMENT_START_TIME.load(Ordering::Relaxed);
+
     LAST_HEARTBEAT.store(current_time, Ordering::Relaxed);
+
+    if current_time < start_time.saturating_sub(ONE_HOUR_NS) && current_time - last_beat < ONE_DAY_NS {
+        return;
+    }
 
     {
         let tournament = TOURNAMENT.lock().map_err(|_| TournamentError::LockError);
@@ -53,6 +58,10 @@ async fn heartbeat() {
             || tournament.state == TournamentState::Cancelled
         {
             return;
+        }
+
+        if tournament.state == TournamentState::Registration {
+            handle_cycle_check();
         }
     }
 
@@ -226,7 +235,7 @@ async fn check_and_update_blinds() -> Result<(), TournamentError> {
 
         // Update all tournament tables with new blinds
         for table_id in tournament.tables.keys() {
-            if let Err(e) = update_blinds(*table_id, &new_level).await {
+            if let Err(e) = update_blinds(table_id.0, &new_level).await {
                 ic_cdk::println!("Error updating blinds on table {:?}: {:?}", table_id, e);
                 continue;
             }
@@ -265,7 +274,7 @@ async fn check_and_start_tournament() -> Result<(), TournamentError> {
         {
             tournament.state = TournamentState::Cancelled;
 
-            let id = ic_cdk::api::canister_self();
+            let id = TournamentId(ic_cdk::api::canister_self());
             ic_cdk::futures::spawn(async move {
                 match handle_cancelled_tournament_wrapper(id).await {
                     Ok(_) => {}
@@ -331,7 +340,7 @@ async fn deploy_and_distribute_players_to_tables(
 
     let table_count = players_per_table.len();
     // Get all players
-    let players: Vec<(Principal, Principal)> = tournament
+    let players: Vec<(WalletPrincipalId, UsersCanisterId)> = tournament
         .current_players
         .iter()
         .map(|(uid, data)| (*uid, data.users_canister_principal))

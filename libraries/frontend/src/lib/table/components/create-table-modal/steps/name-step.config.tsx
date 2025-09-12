@@ -136,11 +136,8 @@ export const Config: SteppedModalStep<Value, State> = {
     revenueShareAccountID: v.is_shared_rake?.[0]?.[1]
   }),
   applyLocalState: (v, l) => {
-    console.log('lslslslss', { l });
-
     if (!l.is_shared_rake)
       return { ...v, is_shared_rake: [] };
-
 
     if (!l.agrees_to_rake) throw new UserError("Must agree to rake calculation");
     if (!l.revenueSharePrincipal) throw new UserError("Revenue share principal is required");

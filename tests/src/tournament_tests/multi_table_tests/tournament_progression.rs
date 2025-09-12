@@ -12,8 +12,9 @@ use tournaments::tournaments::{
     blind_level::SpeedType,
     table_balancing::TableBalancer,
     tournament_type::{BuyInOptions, TournamentSizeType, TournamentType},
-    types::{NewTournament, NewTournamentSpeedType, PayoutPercentage, TournamentState},
+    types::{NewTournament, NewTournamentSpeedType, TournamentId, TournamentState},
 };
+use user::user::WalletPrincipalId;
 
 use crate::TestEnv;
 
@@ -23,7 +24,7 @@ impl TestEnv {
         players_per_table: u8,
         min_players: u8,
         max_players: u8,
-    ) -> (Principal, NewTournament) {
+    ) -> (TournamentId, NewTournament) {
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -44,10 +45,7 @@ impl TestEnv {
             max_players: max_players as u32,
             late_registration_duration_ns: 0,
             require_proof_of_humanity: false,
-            payout_structure: vec![PayoutPercentage {
-                position: 1,
-                percentage: 100,
-            }],
+            guaranteed_prize_pool: None,
             tournament_type: TournamentType::BuyIn(TournamentSizeType::MultiTable(
                 BuyInOptions::new_freezout(),
                 TableBalancer::new(
@@ -86,28 +84,28 @@ impl TestEnv {
         };
 
         let id = self
-            .create_tournament(&tournament_config, &table_config)
+            .create_tournament(None, &tournament_config, &table_config)
             .unwrap();
         (id, tournament_config)
     }
 
     pub fn register_and_start_tournament(
         &self,
-        tournament_id: Principal,
+        tournament_id: TournamentId,
         player_count: u64,
-    ) -> Vec<Principal> {
+    ) -> Vec<WalletPrincipalId> {
         let mut players = Vec::new();
         // Register enough players for multiple tables
         for i in 0..player_count {
             let user = self
                 .create_user(
                     format!("User {}", i),
-                    Principal::self_authenticating(format!("user{}final", i)),
+                    WalletPrincipalId(Principal::self_authenticating(format!("user{}final", i))),
                 )
                 .unwrap();
 
             self.transfer_approve_tokens_for_testing(
-                tournament_id,
+                tournament_id.0,
                 user.principal_id,
                 1000.0,
                 true,

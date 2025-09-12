@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use candid::Principal;
 use errors::game_error::GameError;
 use errors::trace_err;
 use errors::traced_error::TracedError;
+use user::user::WalletPrincipalId;
 
 use crate::poker::game::types::{GameType, QueueItem};
 use crate::table_canister::{
@@ -43,7 +43,9 @@ impl Table {
     }
 
     /// Returns the principal of the player who is the small blind.
-    pub fn get_small_blind_user_principal(&self) -> Result<Principal, TracedError<GameError>> {
+    pub fn get_small_blind_user_principal(
+        &self,
+    ) -> Result<WalletPrincipalId, TracedError<GameError>> {
         let mut index = (self.dealer_position + 1) % (self.config.seats as usize);
 
         for _ in 0..self.config.seats {
@@ -60,7 +62,9 @@ impl Table {
     }
 
     /// Returns the principal of the player who is the big blind.
-    pub fn get_big_blind_user_principal(&self) -> Result<Principal, TracedError<GameError>> {
+    pub fn get_big_blind_user_principal(
+        &self,
+    ) -> Result<WalletPrincipalId, TracedError<GameError>> {
         let mut index = (self.dealer_position + 1) % self.seats.len();
 
         let mut found_small_blind = false;
@@ -105,10 +109,10 @@ impl Table {
             if let Ok(previous_player) = self.get_player_at_seat(self.current_player_index) {
                 previous_player
             } else {
-                Principal::anonymous()
+                WalletPrincipalId::default()
             }
         } else {
-            Principal::anonymous()
+            WalletPrincipalId::default()
         };
 
         // Set the next player to the next active player
@@ -313,7 +317,7 @@ impl Table {
                     .users
                     .get_mut(&side_pot.user_principals[0])
                     .ok_or_else(|| trace_err!(TracedError::new(GameError::PlayerNotFound), ""))?;
-                user.balance += side_pot.pot;
+                user.balance.0 += side_pot.pot;
                 side_pots_to_delete.push(i);
             }
         }
@@ -327,7 +331,7 @@ impl Table {
 
     pub fn set_user_auto_check_fold(
         &mut self,
-        user: Principal,
+        user: WalletPrincipalId,
         enabled: bool,
     ) -> Result<(), TracedError<GameError>> {
         self.get_user_table_data_mut(user)
@@ -337,7 +341,7 @@ impl Table {
         Ok(())
     }
 
-    pub fn is_everyone_auto_check_fold(&self, current_user_principal: Principal) -> bool {
+    pub fn is_everyone_auto_check_fold(&self, current_user_principal: WalletPrincipalId) -> bool {
         for user_principal in self.seats.iter() {
             if let SeatStatus::Occupied(user_principal) = user_principal {
                 if current_user_principal == *user_principal {
@@ -359,7 +363,7 @@ impl Table {
     }
 
     /// Checks if the user can check or fold.
-    pub fn check_fold(&mut self, user: Principal) -> Result<(), TracedError<GameError>> {
+    pub fn check_fold(&mut self, user: WalletPrincipalId) -> Result<(), TracedError<GameError>> {
         let can_check = self.get_users_current_total_bet(user)? >= self.highest_bet;
 
         if can_check {
@@ -397,11 +401,18 @@ impl Table {
                         } else {
                             table_data.seated_out_turns = 0;
                         }
+                        let user = match self.users.get(user_principal) {
+                            Some(user) => user,
+                            None => {
+                                continue; // User not found, skip to next
+                            }
+                        };
                         if !is_cycling_to_showdown
                             && !self.config.is_private.unwrap_or(true)
                             && !self.config.is_shared_rake.is_some()
                             && table_data.player_action != PlayerAction::SittingOut
                             && self.config.currency_type != CurrencyType::Fake
+                            && user.can_gain_xp()
                         {
                             table_data.experience_points += exp_points;
                         }
@@ -427,7 +438,7 @@ impl Table {
             _ => 25,
         };
 
-        let pot_multiplier = match self.pot {
+        let pot_multiplier = match self.pot.0 {
             0..=100_000 => 0.5,              // 0.001 ICP
             100_001..=1_000_000 => 1.0,      // 0.01 ICP
             1_000_001..=10_000_000 => 1.5,   // 0.1 ICP
@@ -441,7 +452,7 @@ impl Table {
     /// Checks if the users current total bet is equal to the highest bet.
     pub fn is_users_current_total_bet_equal_to_highest_bet(
         &self,
-        user_principal: Principal,
+        user_principal: WalletPrincipalId,
     ) -> bool {
         let user_table_data = self.user_table_data.get(&user_principal);
         if let Some(user_table_data) = user_table_data {
@@ -485,7 +496,7 @@ impl Table {
     /// - [`GameError::Other`] if the user is not found.
     pub fn update_highest_bet(
         &mut self,
-        user_principal: Principal,
+        user_principal: WalletPrincipalId,
     ) -> Result<(), TracedError<GameError>> {
         let user_table_data = self
             .get_user_table_data(user_principal)
@@ -508,7 +519,7 @@ impl Table {
     /// - [`GameError::PlayerNotFound`] if the user is not found.
     pub fn is_user_all_in_spread_or_fixed_limit(
         &self,
-        user_principal: Principal,
+        user_principal: WalletPrincipalId,
     ) -> Result<bool, TracedError<GameError>> {
         match self.config.game_type {
             GameType::SpreadLimit(min, _) => {
@@ -516,14 +527,14 @@ impl Table {
                     .users
                     .get(&user_principal)
                     .ok_or_else(|| trace_err!(TracedError::new(GameError::PlayerNotFound), ""))?;
-                Ok(user.balance < min)
+                Ok(user.balance.0 < min)
             }
             GameType::FixedLimit(min, _) => {
                 let user = self
                     .users
                     .get(&user_principal)
                     .ok_or_else(|| trace_err!(TracedError::new(GameError::PlayerNotFound), ""))?;
-                Ok(user.balance < min)
+                Ok(user.balance.0 < min)
             }
             _ => Ok(false),
         }
@@ -707,7 +718,10 @@ impl Table {
             match item {
                 QueueItem::SittingIn(user_principal, is_game_paused) => {
                     if !self.user_table_data.contains_key(&user_principal) {
-                        ic_cdk::println!("Warning: User data not found for {}", user_principal);
+                        ic_cdk::println!(
+                            "Warning: User data not found for {}",
+                            user_principal.0.to_text()
+                        );
                         continue;
                     }
                     self.set_player_action(user_principal, PlayerAction::None)
@@ -724,7 +738,10 @@ impl Table {
                 }
                 QueueItem::Deposit(user_id, users_canister_id, amount) => {
                     if !self.user_table_data.contains_key(&user_id) {
-                        ic_cdk::println!("Warning: User data not found for {}", user_id);
+                        ic_cdk::println!(
+                            "Warning: User data not found for {}",
+                            user_id.0.to_text()
+                        );
                         continue;
                     }
                     let table_principal = self.id;
@@ -802,7 +819,7 @@ impl Table {
                                         users_canister_id,
                                         user_id,
                                         None,
-                                        balance,
+                                        balance.0,
                                         false,
                                     )
                                     .await;
@@ -823,7 +840,10 @@ impl Table {
                 }
                 QueueItem::SittingOut(user_principal) => {
                     if !self.user_table_data.contains_key(&user_principal) {
-                        ic_cdk::println!("Warning: User data not found for {}", user_principal);
+                        ic_cdk::println!(
+                            "Warning: User data not found for {}",
+                            user_principal.0.to_text()
+                        );
                         continue;
                     }
                     self.set_player_action(user_principal, PlayerAction::SittingOut)
@@ -877,7 +897,7 @@ impl Table {
     }
 
     // Removes all the cards from the user table data apart from the user specified by the principal.
-    pub fn hide_cards(&mut self, user_id: Principal) -> Result<(), TracedError<GameError>> {
+    pub fn hide_cards(&mut self, user_id: WalletPrincipalId) -> Result<(), TracedError<GameError>> {
         for (user_principal, table_data) in self.user_table_data.iter_mut() {
             let user = self
                 .users
@@ -893,7 +913,7 @@ impl Table {
     /// Handles when a user is inactive for a turn.
     pub fn handle_inactive_user(
         &mut self,
-        user_principal: Principal,
+        user_principal: WalletPrincipalId,
     ) -> Result<bool, TracedError<GameError>> {
         let user_table_data = self
             .get_user_table_data_mut(user_principal)
@@ -909,18 +929,21 @@ impl Table {
         }
     }
 
-    pub fn get_player_at_seat(&self, index: usize) -> Result<Principal, TracedError<GameError>> {
+    pub fn get_player_at_seat(
+        &self,
+        index: usize,
+    ) -> Result<WalletPrincipalId, TracedError<GameError>> {
         match self.seats.get(index) {
             Some(SeatStatus::Occupied(principal)) => Ok(*principal),
             _ => Err(trace_err!(TracedError::new(GameError::PlayerNotFound))),
         }
     }
 
-    pub fn get_seat_index(&self, user_principal: Principal) -> Option<u8> {
+    pub fn get_seat_index(&self, user_principal: WalletPrincipalId) -> Option<u8> {
         self.seats.iter().position(|seat| matches!(seat, SeatStatus::Occupied(principal) if principal == &user_principal)).map(|i| i as u8)
     }
 
-    pub fn is_players_turn(&self, user_principal: Principal) -> bool {
+    pub fn is_players_turn(&self, user_principal: WalletPrincipalId) -> bool {
         if let SeatStatus::Occupied(principal) = self.seats[self.current_player_index] {
             principal == user_principal
         } else {

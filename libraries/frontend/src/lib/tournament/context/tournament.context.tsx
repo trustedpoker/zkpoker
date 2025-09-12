@@ -23,6 +23,7 @@ import { usePersistentState } from '../../../hooks/persitent-state';
 import { matchRustEnum } from '../../utils/rust';
 import { DateToBigIntTimestamp } from '../../utils/time';
 import { TokenAmountToFloat } from '../../utils/token-amount-conversion';
+import { useIsTournamentRunning } from '../hooks/is-running';
 
 type UserTournamentRanking = {
   table?: PublicTable;
@@ -124,10 +125,7 @@ export const ProvideTournamentContext = memo<PropsWithChildren<{ id: Principal }
     return () => clearInterval(interval);
   }, []);
 
-  const isRunning = useMemo(() => {
-    if (!data || 'Registration' in data.state) return false;
-    return currentTime > data.start_time;
-  }, [currentTime, data]);
+  const isRunning = useIsTournamentRunning(data);
 
   const joinType = useMemo((): JoinType | undefined => {
     if (!buyInOptions || !data || !zkpUser)

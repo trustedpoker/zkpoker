@@ -1,27 +1,37 @@
+import { useHasAdminRole } from '@/src/lib/user';
+import {
+  BuyInOptions,
+  NewTournament,
+  TournamentSizeType,
+  TournamentType,
+} from '@declarations/tournament_index/tournament_index.did';
+import { DateToBigIntTimestamp } from '@lib/utils/time';
+import { CurrencyInputComponent, RealCurrencyInputComponent } from '@zk-game-dao/currency';
+import {
+  DateInputComponent,
+  DropdownInputComponent,
+  IsDev,
+  List,
+  StepComponentProps,
+  SteppedModalStep,
+  SwitchInputComponent,
+  TextInputComponent,
+  TimeInputComponent,
+  UnwrapOptional,
+} from '@zk-game-dao/ui';
 import { addMinutes } from 'date-fns';
 import { memo, useMemo } from 'react';
 
-import {
-  BuyInOptions, NewTournament, TournamentSizeType, TournamentType
-} from '@declarations/tournament_index/tournament_index.did';
-import { DateToBigIntTimestamp } from '@lib/utils/time';
-import { RealCurrencyInputComponent } from '@zk-game-dao/currency';
-import {
-  DateInputComponent, DropdownInputComponent, IsDev, List, StepComponentProps, SteppedModalStep,
-  SwitchInputComponent, TextInputComponent, TimeInputComponent
-} from '@zk-game-dao/ui';
-
-import {
-  ImageUploadComponent
-} from '../../../../../components/common/input/image-upload.component';
+import { ImageUploadComponent } from '../../../../../components/common/input/image-upload.component';
 import { Max } from '../../../../utils/bigint';
 import { matchRustEnum } from '../../../../utils/rust';
 import { Tooltips } from '../../../tooltips';
 import { default_tournament_type, defaultBuyInOptions } from './type-step.config';
 
-type BasicsStepValues = Pick<NewTournament, 'currency' | 'buy_in' | "tournament_type" | "hero_picture" | "name" | "start_time" | 'description' | 'late_registration_duration_ns' | 'require_proof_of_humanity'>;
+type BasicsStepValues = Pick<NewTournament, 'currency' | 'buy_in' | 'guaranteed_prize_pool' | "tournament_type" | "hero_picture" | "name" | "start_time" | 'description' | 'late_registration_duration_ns' | 'require_proof_of_humanity'>;
 
 const BasicsStepComponent = memo<StepComponentProps<BasicsStepValues>>(({ data, patch }) => {
+  const canSetGuaranteedPrizePool = useHasAdminRole({ SuperAdmin: null }, { Admin: null });
 
   const size = useMemo((): TournamentSizeType => {
     if (!data.tournament_type) return { SingleTable: defaultBuyInOptions };
@@ -172,6 +182,23 @@ const BasicsStepComponent = memo<StepComponentProps<BasicsStepValues>>(({ data, 
         )}
       </List>
 
+      {canSetGuaranteedPrizePool && (
+        <List>
+          <SwitchInputComponent
+            label={<>Guaranteed prize pool{" "}<Tooltips.guaranteed_prize_pool /></>}
+            checked={data?.guaranteed_prize_pool && data.guaranteed_prize_pool.length > 0}
+            onChange={(value) => patch({ guaranteed_prize_pool: value ? [0n] : [] })}
+          />
+          {data?.guaranteed_prize_pool && data.guaranteed_prize_pool.length > 0 && (
+            <CurrencyInputComponent
+              label="Prize pool"
+              value={UnwrapOptional(data.guaranteed_prize_pool)}
+              onChange={(value) => patch({ guaranteed_prize_pool: [BigInt(value)] })}
+              currencyType={data.currency ?? { Real: { ICP: null } }}
+            />
+          )}
+        </List >
+      )}
     </>
   );
 });
@@ -186,6 +213,7 @@ export const Config: SteppedModalStep<BasicsStepValues> = {
     hero_picture: IsDev ? 'https://pink-accessible-partridge-21.mypinata.cloud/ipfs/bafybeicebwhz6btreey77irgtel2h6wjw6ygp3xsofbdgjc3vyof7kr4fq' : undefined,
     require_proof_of_humanity: false,
     currency: { Real: { ICP: null } },
+    guaranteed_prize_pool: [],
   },
   Component: BasicsStepComponent,
   isValid: ({ hero_picture, tournament_type, name, start_time, description, late_registration_duration_ns }) => {

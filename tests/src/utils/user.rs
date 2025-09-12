@@ -1,17 +1,17 @@
 use candid::{decode_one, encode_args, Principal};
 use errors::user_error::UserError;
 use ic_ledger_types::{AccountIdentifier, Tokens};
-use user::user::User;
+use user::{admin::AdminRole, user::{User, UsersCanisterId, WalletPrincipalId}};
 
 use crate::TestEnv;
 
 use super::transfer::{transfer_icrc1_tokens, transfer_tokens};
 
 impl TestEnv {
-    pub fn create_user(&self, name: String, user_id: Principal) -> Result<User, UserError> {
+    pub fn create_user(&self, name: String, user_id: WalletPrincipalId) -> Result<User, UserError> {
         let user_canister = self.pocket_ic.update_call(
             self.canister_ids.user_index,
-            user_id,
+            user_id.0,
             "create_user",
             encode_args((name, (), user_id, ())).unwrap(),
         );
@@ -25,13 +25,54 @@ impl TestEnv {
         }
     }
 
-    pub fn get_user(
+    pub fn create_admin_user(
         &self,
-        user_principal: Principal,
-        user_id: Principal,
+        name: String,
+    ) -> (UsersCanisterId, WalletPrincipalId) {
+        let user_id = WalletPrincipalId(Principal::self_authenticating(name.clone()));
+        let user_canister = self
+            .create_user(name, user_id)
+            .expect("Failed to create admin user");
+
+        // Promote the user to admin
+        self.promote_user_to_admin(
+            user_canister.users_canister_id,
+            user_canister.principal_id,
+            AdminRole::SuperAdmin,
+        )
+        .expect("Failed to promote user to admin");
+        (user_canister.users_canister_id, user_canister.principal_id)
+    }
+
+    pub fn promote_user_to_admin(
+        &self,
+        user_principal: UsersCanisterId,
+        target_user_id: WalletPrincipalId,
+        new_role: AdminRole,
     ) -> Result<User, UserError> {
         let user = self.pocket_ic.update_call(
-            user_principal,
+            user_principal.0,
+            Principal::from_text("km7qz-4bai4-e5ptx-hgrck-z3web-ameqg-ksxcf-u7wbr-t5fna-i7bqp-hqe").unwrap(),
+            "promote_user_to_admin",
+            encode_args((target_user_id, new_role)).unwrap(),
+        );
+
+        match user {
+            Ok(arg) => {
+                let user: Result<User, UserError> = decode_one(&arg).unwrap();
+                user
+            }
+            _ => panic!("Failed to promote user to admin"),
+        }
+    }
+
+    pub fn get_user(
+        &self,
+        user_principal: UsersCanisterId,
+        user_id: WalletPrincipalId,
+    ) -> Result<User, UserError> {
+        let user = self.pocket_ic.update_call(
+            user_principal.0,
             Principal::anonymous(),
             "get_user",
             encode_args((user_id,)).unwrap(),
@@ -69,13 +110,13 @@ impl TestEnv {
 
     pub fn add_experience_points(
         &self,
-        users_canister_id: Principal,
-        user_id: Principal,
+        users_canister_id: UsersCanisterId,
+        user_id: WalletPrincipalId,
         currency: String,
         exp: u64,
     ) -> Result<User, UserError> {
         let user = self.pocket_ic.update_call(
-            users_canister_id,
+            users_canister_id.0,
             Principal::anonymous(),
             "add_experience_points",
             encode_args((exp, currency, user_id)).unwrap(),
@@ -92,10 +133,10 @@ impl TestEnv {
 
     pub fn get_user_experience_points(
         &self,
-        user_principal: Principal,
-    ) -> Result<Vec<(Principal, u64)>, UserError> {
+        user_principal: UsersCanisterId,
+    ) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
         let exp = self.pocket_ic.query_call(
-            user_principal,
+            user_principal.0,
             Principal::anonymous(),
             "get_user_experience_points",
             encode_args(()).unwrap(),
@@ -103,7 +144,8 @@ impl TestEnv {
 
         match exp {
             Ok(arg) => {
-                let exp: Result<Vec<(Principal, u64)>, UserError> = decode_one(&arg).unwrap();
+                let exp: Result<Vec<(WalletPrincipalId, u64)>, UserError> =
+                    decode_one(&arg).unwrap();
                 exp
             }
             _ => panic!("Failed to get experience points"),
@@ -112,10 +154,10 @@ impl TestEnv {
 
     pub fn get_pure_poker_user_experience_points(
         &self,
-        user_principal: Principal,
-    ) -> Result<Vec<(Principal, u64)>, UserError> {
+        user_principal: UsersCanisterId,
+    ) -> Result<Vec<(WalletPrincipalId, u64)>, UserError> {
         let exp = self.pocket_ic.query_call(
-            user_principal,
+            user_principal.0,
             Principal::anonymous(),
             "get_pure_poker_user_experience_points",
             encode_args(()).unwrap(),
@@ -123,7 +165,8 @@ impl TestEnv {
 
         match exp {
             Ok(arg) => {
-                let exp: Result<Vec<(Principal, u64)>, UserError> = decode_one(&arg).unwrap();
+                let exp: Result<Vec<(WalletPrincipalId, u64)>, UserError> =
+                    decode_one(&arg).unwrap();
                 exp
             }
             _ => panic!("Failed to get experience points"),
@@ -151,12 +194,12 @@ impl TestEnv {
         }
     }
 
-    pub fn create_test_user(&self, user_name: &str) -> (Principal, Principal) {
-        let user_id = Principal::self_authenticating(user_name);
+    pub fn create_test_user(&self, user_name: &str) -> (UsersCanisterId, WalletPrincipalId) {
+        let user_id = WalletPrincipalId(Principal::self_authenticating(user_name));
         let user_canister = self
             .create_user(user_name.to_string().clone(), user_id)
             .unwrap();
-        (user_canister.users_canister_id, user_id)
+        (user_canister.users_canister_id, user_canister.principal_id)
     }
 
     pub fn create_test_user_with_icp_deposit(
@@ -164,7 +207,7 @@ impl TestEnv {
         user_name: String,
         amount: f64,
         to: Principal,
-    ) -> (Principal, u64) {
+    ) -> (WalletPrincipalId, u64) {
         let (_, user_id) = self.create_test_user(&user_name);
         let block_index_user_1 = transfer_tokens(
             &self.pocket_ic,
@@ -182,7 +225,7 @@ impl TestEnv {
         user_name: String,
         amount: f64,
         to: Principal,
-    ) -> (Principal, u128) {
+    ) -> (WalletPrincipalId, u128) {
         let (_, user_id) = self.create_test_user(&user_name);
         let block_index_user_1 = transfer_icrc1_tokens(
             &self.pocket_ic,

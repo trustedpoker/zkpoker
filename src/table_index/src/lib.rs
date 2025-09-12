@@ -18,7 +18,11 @@ use intercanister_call_wrappers::table_index::get_rake_stats;
 use lazy_static::lazy_static;
 use std::{cmp::Ordering, collections::HashMap, sync::Mutex};
 use table::poker::game::{
-    table_functions::{rake::Rake, table::TableConfig, types::CurrencyType},
+    table_functions::{
+        rake::Rake,
+        table::{SmallBlind, TableConfig, TableId, TableType},
+        types::CurrencyType,
+    },
     types::{GameType, PublicTable},
 };
 use table::table_canister::{
@@ -27,6 +31,7 @@ use table::table_canister::{
 };
 use table_index::{PrivateTableIndex, PublicTableIndex};
 use table_index_types::filter::FilterOptions;
+use user::user::{UsersCanisterId, WalletPrincipalId};
 use utils::{get_canister_state, is_table_full};
 
 mod memory;
@@ -57,7 +62,7 @@ lazy_static! {
         Mutex::new(PublicTableIndex::new());
     static ref PRIVATE_TABLE_INDEX_STATE: Mutex<PrivateTableIndex> =
         Mutex::new(PrivateTableIndex::new());
-    static ref TABLE_PLAYER_COUNTS: Mutex<HashMap<Principal, usize>> = Mutex::new(HashMap::new());
+    static ref TABLE_PLAYER_COUNTS: Mutex<HashMap<TableId, usize>> = Mutex::new(HashMap::new());
     static ref CYCLE_DISPENSER_CANISTER_PROD: Principal =
         Principal::from_text("zuv6g-yaaaa-aaaam-qbeza-cai").unwrap();
     static ref CYCLE_DISPENSER_CANISTER_TEST: Principal =
@@ -71,6 +76,7 @@ lazy_static! {
             .unwrap(),
         Principal::from_text("uyxh5-bi3za-gxbfs-op3gj-ere73-a6jhv-5jky3-zawef-b5r2s-k26un-sae")
             .unwrap(),
+        Principal::from_text("w3kjy-pitqg-dvab7-tb57q-63gnd-di4vo-loiiy-s6zm2-gqcmw-ixliz-aae").unwrap(),
     ];
     static ref TABLE_CANISTER_WASM: &'static [u8] =
         include_bytes!("../../../target/wasm32-unknown-unknown/release/table_canister.wasm");
@@ -102,13 +108,14 @@ fn get_account_number() -> Result<Option<String>, TableIndexError> {
 #[ic_cdk::update]
 async fn create_table(
     config: TableConfig,
-    wallet_principal_id: Option<Principal>,
+    wallet_principal_id: Option<WalletPrincipalId>,
 ) -> Result<PublicTable, TableIndexError> {
     handle_cycle_check().await?;
     let controllers = CONTROLLER_PRINCIPALS.clone();
     let wasm_module = TABLE_CANISTER_WASM.to_vec();
     let table_canister_principal = create_canister_wrapper(controllers, None).await?;
     install_wasm_code(table_canister_principal, wasm_module).await?;
+    let table_canister_principal = TableId(table_canister_principal);
     let raw_bytes = ic_cdk::management_canister::raw_rand().await;
     let raw_bytes = raw_bytes.map_err(|e| {
         TableIndexError::CanisterCallError(format!("Failed to generate random bytes: {:?}", e))
@@ -117,11 +124,13 @@ async fn create_table(
     let config = if *ENABLE_RAKE {
         TableConfig {
             enable_rake: Some(true),
+            table_type: Some(TableType::Cash),
             ..config
         }
     } else {
         TableConfig {
             enable_rake: Some(false),
+            table_type: Some(TableType::Cash),
             ..config
         }
     };
@@ -144,9 +153,11 @@ async fn create_table(
                 .deposit(
                     &mut transaction_state,
                     &currency::Currency::BTC,
-                    wallet_principal_id.ok_or(TableIndexError::InvalidRequest(
-                        "Wallet principal id is required".to_string(),
-                    ))?,
+                    wallet_principal_id
+                        .ok_or(TableIndexError::InvalidRequest(
+                            "Wallet principal id is required".to_string(),
+                        ))?
+                        .0,
                     50000,
                 )
                 .await?;
@@ -158,9 +169,11 @@ async fn create_table(
                 .deposit(
                     &mut transaction_state,
                     &currency::Currency::ICP,
-                    wallet_principal_id.ok_or(TableIndexError::InvalidRequest(
-                        "Wallet principal id is required".to_string(),
-                    ))?,
+                    wallet_principal_id
+                        .ok_or(TableIndexError::InvalidRequest(
+                            "Wallet principal id is required".to_string(),
+                        ))?
+                        .0,
                     1e8 as u64,
                 )
                 .await?;
@@ -200,17 +213,7 @@ async fn create_table(
 }
 
 #[ic_cdk::update]
-async fn get_table(table_principal: Principal) -> Result<PublicTable, TableIndexError> {
-    handle_cycle_check().await?;
-    let table = get_table_wrapper(table_principal).await?;
-    Ok(table)
-}
-
-#[ic_cdk::update]
-async fn update_table_player_count(
-    table_id: Principal,
-    count: usize,
-) -> Result<(), TableIndexError> {
+async fn update_table_player_count(table_id: TableId, count: usize) -> Result<(), TableIndexError> {
     handle_cycle_check().await?;
 
     TABLE_PLAYER_COUNTS
@@ -225,11 +228,11 @@ async fn get_tables(
     filter_options: Option<FilterOptions>,
     page_number: u16,
     page_size: u16,
-) -> Result<Vec<(Principal, TableConfig)>, TableIndexError> {
+) -> Result<Vec<(TableId, TableConfig)>, TableIndexError> {
     handle_cycle_check().await?;
 
     // Get initial table states
-    let mut tables: Vec<(Principal, TableConfig)> = PUBLIC_TABLE_INDEX_STATE
+    let mut tables: Vec<(TableId, TableConfig)> = PUBLIC_TABLE_INDEX_STATE
         .lock()
         .map_err(|_| TableIndexError::LockError)?
         .tables
@@ -262,7 +265,7 @@ async fn get_tables(
 }
 
 #[ic_cdk::query]
-async fn get_all_public_tables() -> Result<Vec<(Principal, TableConfig)>, TableIndexError> {
+async fn get_all_public_tables() -> Result<Vec<(TableId, TableConfig)>, TableIndexError> {
     let public_table_index_state = PUBLIC_TABLE_INDEX_STATE
         .lock()
         .map_err(|_| TableIndexError::LockError)?
@@ -272,7 +275,7 @@ async fn get_all_public_tables() -> Result<Vec<(Principal, TableConfig)>, TableI
 }
 
 #[ic_cdk::query]
-async fn get_all_table_principals() -> Result<Vec<Principal>, TableIndexError> {
+async fn get_all_table_principals() -> Result<Vec<TableId>, TableIndexError> {
     let public_table_index_state = PUBLIC_TABLE_INDEX_STATE
         .lock()
         .map_err(|_| TableIndexError::LockError)?
@@ -293,7 +296,7 @@ async fn get_all_table_principals() -> Result<Vec<Principal>, TableIndexError> {
 }
 
 #[ic_cdk::query]
-fn get_private_tables() -> Result<Vec<Principal>, TableIndexError> {
+fn get_private_tables() -> Result<Vec<TableId>, TableIndexError> {
     let private_table_index_state = PRIVATE_TABLE_INDEX_STATE
         .lock()
         .map_err(|_| TableIndexError::LockError)?
@@ -303,7 +306,7 @@ fn get_private_tables() -> Result<Vec<Principal>, TableIndexError> {
 }
 
 #[ic_cdk::update]
-async fn remove_table_from_indexes(table_principal: Principal) -> Result<(), TableIndexError> {
+async fn remove_table_from_indexes(table_principal: TableId) -> Result<(), TableIndexError> {
     handle_cycle_check().await?;
     let controllers = (*CONTROLLER_PRINCIPALS).clone();
     validate_caller(controllers);
@@ -372,7 +375,7 @@ async fn purge_dud_tables() -> Result<(), TableIndexError> {
 }
 
 #[ic_cdk::update]
-async fn delete_table_by_id(table_principal: Principal) -> Result<(), TableIndexError> {
+async fn delete_table_by_id(table_principal: TableId) -> Result<(), TableIndexError> {
     handle_cycle_check().await?;
     let controllers = (*CONTROLLER_PRINCIPALS).clone();
     validate_caller(controllers);
@@ -406,14 +409,14 @@ async fn monitor_and_top_up_table_canisters() -> Result<(), TableIndexError> {
     let all_tables: Vec<Principal> = public_table_index_state
         .iter()
         .chain(private_table_index_state.iter())
-        .map(|(id, _table_config)| *id)
+        .map(|(id, _table_config)| id.0)
         .collect();
 
     monitor_and_top_up_canisters(all_tables).await?;
     Ok(())
 }
 
-async fn delete_table(table_principal: Principal) -> Result<(), TableIndexError> {
+async fn delete_table(table_principal: TableId) -> Result<(), TableIndexError> {
     handle_cycle_check().await?;
     {
         PUBLIC_TABLE_INDEX_STATE
@@ -434,7 +437,7 @@ async fn delete_table(table_principal: Principal) -> Result<(), TableIndexError>
         ));
     } else {
         return_all_cycles_to_index(table_principal).await?;
-        stop_and_delete_canister(table_principal).await?;
+        stop_and_delete_canister(table_principal.0).await?;
     }
     Ok(())
 }
@@ -452,7 +455,7 @@ async fn delete_all_tables() -> Result<Vec<Result<(), TableIndexError>>, TableIn
         .tables
         .keys()
         .copied()
-        .collect::<Vec<Principal>>();
+        .collect::<Vec<TableId>>();
 
     let private_tables = PRIVATE_TABLE_INDEX_STATE
         .lock()
@@ -460,10 +463,10 @@ async fn delete_all_tables() -> Result<Vec<Result<(), TableIndexError>>, TableIn
         .tables
         .keys()
         .copied()
-        .collect::<Vec<Principal>>();
+        .collect::<Vec<TableId>>();
 
     // Combine all tables
-    let all_tables: Vec<Principal> = public_tables
+    let all_tables: Vec<TableId> = public_tables
         .into_iter()
         .chain(private_tables.into_iter())
         .collect();
@@ -478,7 +481,7 @@ async fn delete_all_tables() -> Result<Vec<Result<(), TableIndexError>>, TableIn
             if is_game_ongoing {
                 return Err(TableIndexError::InvalidRequest(format!(
                     "Cannot delete table {} with ongoing game",
-                    table_principal
+                    table_principal.0.to_text()
                 )));
             }
 
@@ -488,7 +491,7 @@ async fn delete_all_tables() -> Result<Vec<Result<(), TableIndexError>>, TableIn
             return_all_cycles_to_index(table_principal).await?;
 
             // Delete the canister
-            stop_and_delete_canister(table_principal).await?;
+            stop_and_delete_canister(table_principal.0).await?;
 
             // Remove from indexes
             {
@@ -518,47 +521,50 @@ async fn delete_all_tables() -> Result<Vec<Result<(), TableIndexError>>, TableIn
 const CYCLES_TOP_UP_AMOUNT: u128 = 750_000_000_000;
 
 #[ic_cdk::update]
-async fn request_cycles() -> Result<(), TableIndexError> {
+async fn request_cycles() -> Result<(), CanisterManagementError> {
     let cycles = ic_cdk::api::canister_cycle_balance();
-    let caller = ic_cdk::api::msg_caller();
+    let caller = TableId(ic_cdk::api::msg_caller());
     if cycles < CYCLES_TOP_UP_AMOUNT {
-        return Err(TableIndexError::ManagementCanisterError(
-            CanisterManagementError::InsufficientCycles,
-        ));
+        return Err(CanisterManagementError::InsufficientCycles);
     }
 
     transfer_cycles(CYCLES_TOP_UP_AMOUNT, caller).await
 }
 
-async fn transfer_cycles(cycles_amount: u128, caller: Principal) -> Result<(), TableIndexError> {
+async fn transfer_cycles(
+    cycles_amount: u128,
+    caller: TableId,
+) -> Result<(), CanisterManagementError> {
     let public_table_index_state = PUBLIC_TABLE_INDEX_STATE
         .lock()
-        .map_err(|_| TableIndexError::LockError)?
+        .map_err(|_| CanisterManagementError::LockError)?
         .tables
         .clone();
     let private_table_index_state = PRIVATE_TABLE_INDEX_STATE
         .lock()
-        .map_err(|_| TableIndexError::LockError)?
+        .map_err(|_| CanisterManagementError::LockError)?
         .tables
         .clone();
 
     if !public_table_index_state.contains_key(&caller)
         && !private_table_index_state.contains_key(&caller)
     {
-        return Err(TableIndexError::ManagementCanisterError(
-            CanisterManagementError::Transfer(format!(
-                "Caller is not a valid destination: {}",
-                caller
-            )),
-        ));
+        return Err(CanisterManagementError::Transfer(format!(
+            "Caller is not a valid destination: {}",
+            caller.0.to_text()
+        )));
     }
 
-    top_up_canister(caller, cycles_amount).await?;
+    top_up_canister(caller.0, cycles_amount).await?;
     Ok(())
 }
 
 #[ic_cdk::query]
-async fn get_rake(small_blind: u64, currency: Currency, game_type: GameType) -> Option<Rake> {
+async fn get_rake(
+    small_blind: SmallBlind,
+    currency: Currency,
+    game_type: GameType,
+) -> Option<Rake> {
     match Rake::new(small_blind, &game_type, &currency) {
         Ok(rake) => Some(rake),
         Err(e) => {
@@ -589,7 +595,7 @@ async fn get_all_rake_stats() -> Result<GlobalRakeStats, TableIndexError> {
             .map(|&table_id| async move {
                 let stats = get_rake_stats(table_id).await?;
 
-                Ok::<(Principal, RakeStats), TableIndexError>((table_id, stats))
+                Ok::<(TableId, RakeStats), TableIndexError>((table_id, stats))
             })
             .collect();
 
@@ -626,8 +632,8 @@ fn get_rake_wallet_info() -> (Principal, String) {
 
 #[ic_cdk::update]
 async fn quick_join_table(
-    user_principal: Principal,
-    wallet_principal_id: Principal,
+    user_principal: UsersCanisterId,
+    wallet_principal_id: WalletPrincipalId,
     amount: u64,
     currency: CurrencyType,
 ) -> Result<PublicTable, TableIndexError> {
@@ -649,7 +655,7 @@ async fn quick_join_table(
         .clone();
 
     // Filter tables by currency and not full
-    let mut available_tables: Vec<(Principal, usize)> = Vec::new();
+    let mut available_tables: Vec<(TableId, usize)> = Vec::new();
 
     for (id, table_config) in public_tables.iter() {
         // Skip tables that don't match the currency
@@ -710,8 +716,8 @@ async fn quick_join_table(
     let table_to_join = available_tables[0].0;
 
     let table = join_table(
-        user_principal,
         table_to_join,
+        user_principal,
         wallet_principal_id,
         None,
         amount,
@@ -724,7 +730,7 @@ async fn quick_join_table(
 
 #[ic_cdk::update]
 async fn upgrade_all_table_canisters(
-) -> Result<Vec<(Principal, CanisterManagementError)>, TableIndexError> {
+) -> Result<Vec<(TableId, CanisterManagementError)>, TableIndexError> {
     // Validate caller permissions
     let caller = ic_cdk::api::msg_caller();
     if !CONTROLLER_PRINCIPALS.contains(&caller) {
@@ -737,14 +743,14 @@ async fn upgrade_all_table_canisters(
 
     const BATCH_SIZE: usize = 30; // Process 30 tables at a time
 
-    let tables: Vec<Principal> = {
+    let tables: Vec<TableId> = {
         let public_tables = PUBLIC_TABLE_INDEX_STATE
             .lock()
             .map_err(|_| TableIndexError::LockError)?
             .tables
             .keys()
             .copied()
-            .collect::<Vec<Principal>>();
+            .collect::<Vec<TableId>>();
 
         let private_tables = PRIVATE_TABLE_INDEX_STATE
             .lock()
@@ -752,7 +758,7 @@ async fn upgrade_all_table_canisters(
             .tables
             .keys()
             .copied()
-            .collect::<Vec<Principal>>();
+            .collect::<Vec<TableId>>();
 
         public_tables
             .into_iter()
@@ -770,18 +776,19 @@ async fn upgrade_all_table_canisters(
             .map(|&table_canister| {
                 let wasm_clone = wasm_module.clone();
                 async move {
-                    match canister_functions::upgrade_wasm_code(table_canister, wasm_clone).await {
+                    match canister_functions::upgrade_wasm_code(table_canister.0, wasm_clone).await
+                    {
                         Ok(_) => {
                             ic_cdk::println!(
                                 "Successfully upgraded table canister {}",
-                                table_canister
+                                table_canister.0.to_text()
                             );
                             Ok(table_canister)
                         }
                         Err(e) => {
                             ic_cdk::println!(
                                 "Failed to upgrade table canister {}: {:?}",
-                                table_canister,
+                                table_canister.0.to_text(),
                                 e
                             );
                             Err((table_canister, e))
@@ -886,6 +893,80 @@ async fn get_canister_status_formatted() -> Result<String, TableIndexError> {
 
     ic_cdk::println!("{}", formatted_status);
     Ok(formatted_status)
+}
+
+#[ic_cdk::update]
+async fn get_table_player_counts() -> Result<Vec<String>, TableIndexError> {
+    handle_cycle_check().await?;
+    let player_counts = TABLE_PLAYER_COUNTS
+        .lock()
+        .map_err(|_| TableIndexError::LockError)?;
+    let player_counts = player_counts.clone();
+    let mut tables = Vec::new();
+    for (table_id, count) in player_counts.iter() {
+        let table = get_table_wrapper(*table_id).await.map_err(|e| {
+            TableIndexError::CanisterCallError(format!(
+                "Failed to get table wrapper for {}: {:?}",
+                table_id.0.to_text(),
+                e
+            ))
+        })?;
+        tables.push(format!(
+            "Table ID: {}, Count: {}, Actual Players: {}, Config: {:?}",
+            table_id.0.to_text(),
+            count,
+            table.users.len(),
+            table.config
+        ));
+    }
+    Ok(tables)
+}
+
+#[ic_cdk::update]
+async fn update_table_player_counts() -> Result<(), TableIndexError> {
+    validate_caller(CONTROLLER_PRINCIPALS.clone());
+    handle_cycle_check().await?;
+    // Get all table principals
+    let public_tables = PUBLIC_TABLE_INDEX_STATE
+        .lock()
+        .map_err(|_| TableIndexError::LockError)?
+        .tables
+        .keys()
+        .copied()
+        .collect::<Vec<TableId>>();
+
+    let private_tables = PRIVATE_TABLE_INDEX_STATE
+        .lock()
+        .map_err(|_| TableIndexError::LockError)?
+        .tables
+        .keys()
+        .copied()
+        .collect::<Vec<TableId>>();
+
+    // Combine all tables
+    let all_tables: Vec<TableId> = public_tables
+        .into_iter()
+        .chain(private_tables.into_iter())
+        .collect();
+
+    let mut player_counts = TABLE_PLAYER_COUNTS
+        .lock()
+        .map_err(|_| TableIndexError::LockError)?;
+
+    for table_id in all_tables {
+        let table = get_table_wrapper(table_id).await.map_err(|e| {
+            TableIndexError::CanisterCallError(format!(
+                "Failed to get table wrapper for {}: {:?}",
+                table_id.0.to_text(),
+                e
+            ))
+        })?;
+
+        // Update player count
+        player_counts.insert(table_id, table.users.len());
+    }
+
+    Ok(())
 }
 
 ic_cdk::export_candid!();

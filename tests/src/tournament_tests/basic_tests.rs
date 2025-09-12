@@ -5,20 +5,21 @@ use currency::Currency;
 use errors::table_error::TableError;
 use table::poker::game::{
     table_functions::{
-        table::{TableConfig, TableType},
+        table::{TableConfig, TableId, TableType},
         types::{CurrencyType, DealStage},
     },
     utils::convert_to_e8s,
 };
 use tournaments::tournaments::{
     tournament_type::{BuyInOptions, TournamentSizeType, TournamentType},
-    types::{NewTournament, NewTournamentSpeedType, PayoutPercentage, TournamentState},
+    types::{NewTournament, NewTournamentSpeedType, TournamentState},
 };
+use user::user::WalletPrincipalId;
 
 use crate::TestEnv;
 
 impl TestEnv {
-    pub fn complete_betting_round(&self, table_id: Principal) -> Result<(), TableError> {
+    pub fn complete_betting_round(&self, table_id: TableId) -> Result<(), TableError> {
         // Get current table state
         let mut table = self.get_table(table_id)?;
 
@@ -62,10 +63,7 @@ fn create_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -99,7 +97,7 @@ fn create_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
     let new_tournament = test_env.get_tournament(id).unwrap();
     assert_eq!(new_tournament.name, tournament_config.name);
@@ -120,10 +118,7 @@ fn join_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -157,16 +152,16 @@ fn join_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     let user_1 = test_env
         .create_user(
             "User 1".to_string(),
-            Principal::self_authenticating("user1jointournament"),
+            WalletPrincipalId(Principal::self_authenticating("user1jointournament")),
         )
         .expect("Failed to create user");
-    test_env.transfer_approve_tokens_for_testing(id, user_1.principal_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, user_1.principal_id, 1000.0, true);
 
     test_env
         .join_tournament(id, user_1.users_canister_id, user_1.principal_id)
@@ -190,10 +185,7 @@ fn duplicate_join_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -227,16 +219,18 @@ fn duplicate_join_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     let user_1 = test_env
         .create_user(
             "User 1".to_string(),
-            Principal::self_authenticating("user1duplicatejointournament"),
+            WalletPrincipalId(Principal::self_authenticating(
+                "user1duplicatejointournament",
+            )),
         )
         .expect("Failed to create user");
-    test_env.transfer_approve_tokens_for_testing(id, user_1.principal_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, user_1.principal_id, 1000.0, true);
 
     test_env
         .join_tournament(id, user_1.users_canister_id, user_1.principal_id)
@@ -265,10 +259,7 @@ fn invalid_join_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -302,16 +293,16 @@ fn invalid_join_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     let user_1 = test_env
         .create_user(
             "User 1".to_string(),
-            Principal::self_authenticating("user1invalidjointournament"),
+            WalletPrincipalId(Principal::self_authenticating("user1invalidjointournament")),
         )
         .expect("Failed to create user");
-    test_env.transfer_approve_tokens_for_testing(id, user_1.principal_id, 1.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, user_1.principal_id, 1.0, true);
 
     let res = test_env.join_tournament(id, user_1.users_canister_id, user_1.principal_id);
     assert!(res.is_err());
@@ -334,10 +325,7 @@ fn leave_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -371,16 +359,16 @@ fn leave_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     let user_1 = test_env
         .create_user(
             "User 1".to_string(),
-            Principal::self_authenticating("user1leavetournament"),
+            WalletPrincipalId(Principal::self_authenticating("user1leavetournament")),
         )
         .expect("Failed to create user");
-    test_env.transfer_approve_tokens_for_testing(id, user_1.principal_id, 1000.0, true);
+    test_env.transfer_approve_tokens_for_testing(id.0, user_1.principal_id, 1000.0, true);
 
     test_env
         .join_tournament(id, user_1.users_canister_id, user_1.principal_id)
@@ -419,10 +407,7 @@ fn start_tournament() {
         min_players: 5,
         max_players: 8,
         late_registration_duration_ns: 10,
-        payout_structure: vec![PayoutPercentage {
-            position: 1,
-            percentage: 100,
-        }],
+        guaranteed_prize_pool: None,
         tournament_type: TournamentType::BuyIn(TournamentSizeType::SingleTable(
             BuyInOptions::new_freezout(),
         )),
@@ -457,7 +442,7 @@ fn start_tournament() {
     };
 
     let id = test_env
-        .create_tournament(&tournament_config, &table_config)
+        .create_tournament(None, &tournament_config, &table_config)
         .unwrap();
 
     println!("Joining tournament");
@@ -466,11 +451,14 @@ fn start_tournament() {
         let user = test_env
             .create_user(
                 format!("User {}", i),
-                Principal::self_authenticating(format!("user{}starttournament", i)),
+                WalletPrincipalId(Principal::self_authenticating(format!(
+                    "user{}starttournament",
+                    i
+                ))),
             )
             .expect("Failed to create user");
 
-        test_env.transfer_approve_tokens_for_testing(id, user.principal_id, 1000.0, true);
+        test_env.transfer_approve_tokens_for_testing(id.0, user.principal_id, 1000.0, true);
 
         test_env
             .join_tournament(id, user.users_canister_id, user.principal_id)
@@ -494,7 +482,7 @@ fn start_tournament() {
         .advance_time(Duration::from_nanos(3_000_000_000_000)); // 2 seconds
 
     // Now tournament should start
-    for _ in 0..20 {
+    for _ in 0..100 {
         test_env.pocket_ic.tick();
     }
     let tournament = test_env.get_tournament(id).unwrap();

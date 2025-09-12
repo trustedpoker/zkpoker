@@ -4,7 +4,7 @@ use authentication::validate_caller;
 use candid::{Nat, Principal};
 use canister_functions::{rake_constants, rake_stats::RakeStats};
 use chat::{ChatHistory, ChatMessage, ChatMessageType};
-use currency::{state::TransactionState, types::currency_manager::CurrencyManager};
+use currency::{state::TransactionState, types::currency_manager::CurrencyManager, Currency};
 use errors::{chat_error::ChatError, game_error::GameError, table_error::TableError};
 use ic_cdk::management_canister::{canister_status, CanisterStatusArgs, DepositCyclesArgs};
 use intercanister_call_wrappers::{
@@ -22,7 +22,7 @@ use table::{
             table_functions::{
                 action_log::ActionType,
                 ante::AnteType,
-                table::{Table, TableConfig, TableType},
+                table::{BigBlind, SmallBlind, Table, TableConfig, TableId, TableType},
                 types::{BetType, CurrencyType, DealStage, Notification, PlayerAction, SeatStatus},
             },
             types::{PublicTable, QueueItem, TableStatus},
@@ -34,7 +34,7 @@ use table::{
     utils::is_table_game_ongoing,
 };
 use tournaments::tournaments::types::UserTournamentAction;
-use user::user::{User, REFERRAL_PERIOD};
+use user::user::{User, UsersCanisterId, WalletPrincipalId, REFERRAL_PERIOD};
 use utils::{
     get_user_index_principal, handle_cycle_check, handle_last_user_leaving,
     handle_table_validity_check, update_player_count_tournament, update_table_player_count,
@@ -63,6 +63,7 @@ lazy_static! {
             .unwrap(),
         Principal::from_text("uyxh5-bi3za-gxbfs-op3gj-ere73-a6jhv-5jky3-zawef-b5r2s-k26un-sae")
             .unwrap(),
+        Principal::from_text("w3kjy-pitqg-dvab7-tb57q-63gnd-di4vo-loiiy-s6zm2-gqcmw-ixliz-aae").unwrap(),
     ];
 }
 
@@ -86,7 +87,7 @@ async fn create_table(config: TableConfig, bytes: Vec<u8>) -> Result<PublicTable
 
         let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
 
-        let table = Table::new(ic_cdk::api::canister_self(), config.clone(), bytes);
+        let table = Table::new(TableId(ic_cdk::api::canister_self()), config.clone(), bytes);
 
         *table_state = Some(table.clone());
         table.clone()
@@ -114,7 +115,7 @@ fn ping() -> String {
 fn get_table() -> Result<PublicTable, TableError> {
     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
-    let caller = ic_cdk::api::msg_caller();
+    let caller = WalletPrincipalId(ic_cdk::api::msg_caller());
 
     if table.deal_stage != DealStage::Showdown {
         table.hide_cards(caller).map_err(|e| e.into_inner())?;
@@ -139,13 +140,13 @@ fn is_game_ongoing() -> Result<bool, TableError> {
 #[allow(dependency_on_unit_never_type_fallback)]
 #[ic_cdk::update]
 async fn join_table(
-    users_canister_principal: Principal,
-    user_id: Principal,
+    users_canister_principal: UsersCanisterId,
+    user_id: WalletPrincipalId,
     seat_index: Option<u64>, // javascript can't send u8
     deposit_amount: u64,
     player_sitting_out: bool,
 ) -> Result<PublicTable, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     if deposit_amount == 0 {
         return Err(TableError::InvalidRequest(
             "Deposit amount cannot be 0".to_string(),
@@ -157,7 +158,7 @@ async fn join_table(
         table.as_ref().ok_or(TableError::TableNotFound)?.clone()
     };
 
-    if table.big_blind > deposit_amount {
+    if table.big_blind.0 > deposit_amount {
         return Err(TableError::InsufficientFunds);
     }
 
@@ -170,6 +171,9 @@ async fn join_table(
 
     {
         let user = get_user_wrapper(users_canister_principal, user_id).await?;
+        if !user.can_play() {
+            return Err(TableError::UserBanned);
+        }
         if let Some(require_proof_of_humanity) = table.config.require_proof_of_humanity {
             if require_proof_of_humanity && !user.is_verified.unwrap_or(false) {
                 return Err(TableError::UserNotVerified);
@@ -189,7 +193,7 @@ async fn join_table(
             };
 
             currency_manager
-                .validate_allowance(&currency, user_id, deposit_amount)
+                .validate_allowance(&currency, user_id.0, deposit_amount)
                 .await?;
         }
         CurrencyType::Fake => {}
@@ -198,11 +202,11 @@ async fn join_table(
     let user = add_users_active_table(
         users_canister_principal,
         user_id,
-        ic_cdk::api::canister_self(),
+        TableId(ic_cdk::api::canister_self()),
     )
     .await;
     let mut user = user?;
-    user.balance = deposit_amount;
+    user.balance.0 = deposit_amount;
 
     if table.users.users.contains_key(&user_id) || table.is_user_in_table(user_id) {
         return Err(TableError::UserAlreadyInGame);
@@ -220,7 +224,7 @@ async fn join_table(
         remove_users_active_table(
             users_canister_principal,
             user_id,
-            ic_cdk::api::canister_self(),
+            TableId(ic_cdk::api::canister_self()),
         )
         .await?;
         return Err(e.into());
@@ -241,7 +245,7 @@ async fn join_table(
                     .clone()
             };
             match currency_manager
-                .deposit(&mut transaction_state, &currency, user_id, deposit_amount)
+                .deposit(&mut transaction_state, &currency, user_id.0, deposit_amount)
                 .await
             {
                 Ok(_) => {
@@ -254,14 +258,14 @@ async fn join_table(
                     remove_users_active_table(
                         users_canister_principal,
                         user_id,
-                        ic_cdk::api::canister_self(),
+                        TableId(ic_cdk::api::canister_self()),
                     )
                     .await?;
 
                     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
                     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
                     table
-                        .remove_user(users_canister_principal, ActionType::Leave)
+                        .remove_user(user_id, ActionType::Leave)
                         .map_err(|e| e.into_inner())?;
                     return Err(e.into());
                 }
@@ -273,17 +277,18 @@ async fn join_table(
     let is_paused = table_state.config.is_paused.unwrap_or(false);
 
     if table_state.number_of_players() >= 2 && !table_state.is_game_ongoing() && !is_paused {
-        if let Err(e) = start_new_betting_round_wrapper(ic_cdk::api::canister_self()).await {
+        if let Err(e) = start_new_betting_round_wrapper(TableId(ic_cdk::api::canister_self())).await
+        {
             ic_cdk::println!("Error starting new betting round: {:?}", e);
             if matches!(e, TableError::CanisterCallError(_)) {
                 return Err(e);
             }
         }
     }
-    let caller = ic_cdk::api::msg_caller();
+    let caller = WalletPrincipalId(ic_cdk::api::msg_caller());
     table_state.hide_cards(caller).map_err(|e| e.into_inner())?;
     let res = match table_state.config.table_type {
-        Some(TableType::Cash) | None => update_table_player_count(table_state.users.len()),
+        Some(TableType::Cash) => update_table_player_count(table_state.users.len()),
         _ => update_player_count_tournament(UserTournamentAction::Join(user_id)),
     };
     if let Err(e) = res {
@@ -295,11 +300,11 @@ async fn join_table(
 
 #[ic_cdk::update]
 async fn kick_player(
-    users_canister_principal: Principal,
-    user_id: Principal,
+    users_canister_principal: UsersCanisterId,
+    user_id: WalletPrincipalId,
     balance: u64,
 ) -> Result<PublicTable, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     let mut table = {
         let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
@@ -318,7 +323,7 @@ async fn kick_player(
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table.id]);
+        validate_caller(vec![backend_principal, table.id.0]);
 
         if is_table_game_ongoing(table) {
             if table.is_players_turn(user_id) {
@@ -354,7 +359,7 @@ async fn kick_player(
                 };
 
                 currency_manager
-                    .withdraw(currency, user_id, balance)
+                    .withdraw(currency, user_id.0, balance)
                     .await?;
             }
         }
@@ -365,7 +370,7 @@ async fn kick_player(
         if let Err(e) = remove_users_active_table(
             users_canister_principal,
             user_id,
-            ic_cdk::api::canister_self(),
+            TableId(ic_cdk::api::canister_self()),
         )
         .await
         {
@@ -381,9 +386,15 @@ async fn kick_player(
             .map_err(|e| e.into_inner())?;
     }
 
-    let caller = ic_cdk::api::msg_caller();
+    let caller = WalletPrincipalId(ic_cdk::api::msg_caller());
     table.hide_cards(caller).map_err(|e| e.into_inner())?;
-    let _ = update_table_player_count(table.users.len());
+    let res = match table.config.table_type {
+        Some(TableType::Cash) => update_table_player_count(table.users.len()),
+        _ => update_player_count_tournament(UserTournamentAction::Join(user_id)),
+    };
+    if let Err(e) = res {
+        ic_cdk::println!("Error updating table player count: {:?}", e);
+    }
 
     if table.users.users.is_empty() {
         handle_last_user_leaving().await?;
@@ -394,10 +405,24 @@ async fn kick_player(
 
 #[ic_cdk::update]
 async fn leave_table(
-    users_canister_id: Principal,
-    user_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
 ) -> Result<PublicTable, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
+
+    ic_cdk::futures::spawn(async move {
+        for _ in 0..3 {
+            match remove_users_active_table(users_canister_id, user_id, TableId(ic_cdk::api::canister_self())).await {
+                Ok(_) => {
+                    ic_cdk::println!("User {} removed from active table", user_id.0.to_text());
+                    break;
+                }
+                Err(e) => {
+                    ic_cdk::println!("Error removing active table: {}", e);
+                }
+            }
+        }
+    });
 
     let (mut table, balance) = {
         let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
@@ -418,10 +443,10 @@ async fn leave_table(
 
         let user = table.users.get(&user_id).ok_or(TableError::UserNotFound)?;
         validate_caller(vec![
-            user_id,
-            user.principal_id,
+            user_id.0,
+            user.principal_id.0,
             backend_principal,
-            table.id,
+            table.id.0,
         ]);
 
         if is_table_game_ongoing(table) {
@@ -438,22 +463,22 @@ async fn leave_table(
             .users
             .get(&user_id)
             .map(|user| user.balance)
-            .unwrap_or(0);
+            .unwrap_or_default();
 
         (table.clone(), balance)
     };
 
     match &table.config.currency_type {
         CurrencyType::Real(currency) => {
-            ic_cdk::println!("Balance: {}", balance);
+            ic_cdk::println!("Balance: {}", balance.0);
 
             let fee = if table.config.currency_type == CurrencyType::Real(currency::Currency::BTC) {
                 10
             } else {
                 ic_ledger_types::DEFAULT_FEE.e8s()
             };
-            if balance > fee {
-                ic_cdk::println!("Withdrawing: {}", balance);
+            if balance.0 > fee {
+                ic_cdk::println!("Withdrawing: {}", balance.0);
                 let currency_manager = {
                     let currency_manager =
                         CURRENCY_MANAGER.lock().map_err(|_| TableError::LockError)?;
@@ -464,21 +489,12 @@ async fn leave_table(
                 };
 
                 currency_manager
-                    .withdraw(currency, user_id, balance)
+                    .withdraw(currency, user_id.0, balance.0)
                     .await?;
             }
         }
         CurrencyType::Fake => {}
     }
-
-    ic_cdk::futures::spawn(async move {
-        if let Err(e) =
-            remove_users_active_table(users_canister_id, user_id, ic_cdk::api::canister_self())
-                .await
-        {
-            ic_cdk::println!("Error removing active table: {}", e);
-        }
-    });
 
     {
         let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
@@ -488,10 +504,10 @@ async fn leave_table(
             .map_err(|e| e.into_inner())?;
     }
 
-    let caller = ic_cdk::api::msg_caller();
+    let caller = WalletPrincipalId(ic_cdk::api::msg_caller());
     table.hide_cards(caller).map_err(|e| e.into_inner())?;
     let res = match table.config.table_type {
-        Some(TableType::Cash) | None => update_table_player_count(table.users.len()),
+        Some(TableType::Cash) => update_table_player_count(table.users.len()),
         _ => update_player_count_tournament(UserTournamentAction::Leave(user_id)),
     };
     if let Err(e) = res {
@@ -507,11 +523,11 @@ async fn leave_table(
 
 #[ic_cdk::update]
 async fn leave_table_for_table_balancing(
-    users_canister_id: Principal,
-    user_id: Principal,
-    table_to_move_to_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
+    table_to_move_to_id: TableId,
 ) -> Result<PublicTable, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     let mut table = {
         let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
@@ -532,19 +548,22 @@ async fn leave_table_for_table_balancing(
 
         let user = table.users.get(&user_id).ok_or(TableError::UserNotFound)?;
         validate_caller(vec![
-            user_id,
-            user.principal_id,
+            user_id.0,
+            user.principal_id.0,
             backend_principal,
-            table.id,
+            table.id.0,
         ]);
 
         table.clone()
     };
 
     ic_cdk::futures::spawn(async move {
-        if let Err(e) =
-            remove_users_active_table(users_canister_id, user_id, ic_cdk::api::canister_self())
-                .await
+        if let Err(e) = remove_users_active_table(
+            users_canister_id,
+            user_id,
+            TableId(ic_cdk::api::canister_self()),
+        )
+        .await
         {
             ic_cdk::println!("Error removing active table: {}", e);
         }
@@ -558,10 +577,10 @@ async fn leave_table_for_table_balancing(
             .map_err(|e| e.into_inner())?;
     }
 
-    let caller = ic_cdk::api::msg_caller();
+    let caller = WalletPrincipalId(ic_cdk::api::msg_caller());
     table.hide_cards(caller).map_err(|e| e.into_inner())?;
     let res = match table.config.table_type {
-        Some(TableType::Cash) | None => update_table_player_count(table.users.len()),
+        Some(TableType::Cash) => update_table_player_count(table.users.len()),
         _ => update_player_count_tournament(UserTournamentAction::Leave(user_id)),
     };
     if let Err(e) = res {
@@ -572,8 +591,8 @@ async fn leave_table_for_table_balancing(
 }
 
 #[ic_cdk::update]
-async fn withdraw_from_table(user_id: Principal, amount: u64) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn withdraw_from_table(user_id: WalletPrincipalId, amount: u64) -> Result<(), TableError> {
+    handle_cycle_check().await;
     handle_table_validity_check()?;
     if amount == 0 {
         return Err(TableError::InvalidRequest(
@@ -592,7 +611,7 @@ async fn withdraw_from_table(user_id: Principal, amount: u64) -> Result<(), Tabl
             .ok_or(TableError::CanisterCallError(
                 "Backend principal not found.".to_string(),
             ))?;
-        validate_caller(vec![user_id, user.principal_id, backend_principal]);
+        validate_caller(vec![user_id.0, user.principal_id.0, backend_principal]);
 
         let user_table_data = table
             .get_user_table_data(user_id)
@@ -610,7 +629,7 @@ async fn withdraw_from_table(user_id: Principal, amount: u64) -> Result<(), Tabl
             .users
             .get_mut(&user_id)
             .ok_or(TableError::UserNotFound)?;
-        if user.balance < amount {
+        if user.balance.0 < amount {
             return Err(GameError::InsufficientFunds.into());
         }
         user.withdraw(amount);
@@ -629,7 +648,7 @@ async fn withdraw_from_table(user_id: Principal, amount: u64) -> Result<(), Tabl
             };
 
             currency_manager
-                .withdraw(&currency, user_id, amount)
+                .withdraw(&currency, user_id.0, amount)
                 .await?;
         }
         CurrencyType::Fake => {}
@@ -639,12 +658,12 @@ async fn withdraw_from_table(user_id: Principal, amount: u64) -> Result<(), Tabl
 
 #[ic_cdk::update]
 async fn deposit_to_table(
-    users_canister_id: Principal,
-    user_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
     amount: u64,
     is_queued: bool,
 ) -> Result<ReturnResult, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     if amount == 0 {
         return Err(TableError::InvalidRequest(
             "Deposit amount cannot be 0".to_string(),
@@ -668,7 +687,7 @@ async fn deposit_to_table(
                 };
 
                 if let Err(e) = currency_manager
-                    .validate_allowance(&currency, user_id, amount)
+                    .validate_allowance(&currency, user_id.0, amount)
                     .await
                 {
                     return Err(e.into());
@@ -721,7 +740,7 @@ async fn deposit_to_table(
             };
 
             match currency_manager
-                .deposit(&mut transaction_state, &currency, user_id, amount)
+                .deposit(&mut transaction_state, &currency, user_id.0, amount)
                 .await
             {
                 Ok(_) => {
@@ -748,11 +767,11 @@ async fn deposit_to_table(
 }
 
 #[ic_cdk::update]
-fn set_player_action(
-    user_principal: Principal,
+async fn set_player_action(
+    user_principal: WalletPrincipalId,
     player_action: PlayerAction,
 ) -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
     let user = table_state
@@ -765,7 +784,11 @@ fn set_player_action(
         .ok_or(TableError::CanisterCallError(
             "Backend principal not found.".to_string(),
         ))?;
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     table_state
         .set_player_action(user_principal, player_action)
@@ -774,8 +797,8 @@ fn set_player_action(
 }
 
 // #[ic_cdk::update]
-// fn set_auto_check_fold(user_principal: Principal, enabled: bool) -> Result<(), TableError> {
-//     handle_cycle_check();
+// fn set_auto_check_fold(user_principal: WalletPrincipalId, enabled: bool) -> Result<(), TableError> {
+//     handle_cycle_check().await;
 //     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
 //     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
 //     let user = table_state
@@ -788,7 +811,7 @@ fn set_player_action(
 //         .ok_or(TableError::CanisterCallError(
 //             "Backend principal not found.".to_string(),
 //         ))?;
-//     validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+//     validate_caller(vec![user_principal.0, user.principal_id.0, backend_principal]);
 
 //     if table_state.is_players_turn(user_principal) {
 //         if table_state.is_users_current_total_bet_equal_to_highest_bet(user_principal) {
@@ -820,8 +843,8 @@ fn set_player_action(
 // }
 
 #[ic_cdk::update]
-fn player_sitting_out(user_principal: Principal) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn player_sitting_out(user_principal: WalletPrincipalId) -> Result<(), TableError> {
+    handle_cycle_check().await;
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
     let user = table_state
@@ -834,7 +857,11 @@ fn player_sitting_out(user_principal: Principal) -> Result<(), TableError> {
         .ok_or(TableError::CanisterCallError(
             "Backend principal not found.".to_string(),
         ))?;
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     if table_state.users.get(&user_principal).is_none() {
         return Err(GameError::ActionNotAllowed {
@@ -852,11 +879,11 @@ fn player_sitting_out(user_principal: Principal) -> Result<(), TableError> {
 
 #[ic_cdk::update]
 async fn player_sitting_in(
-    users_canister_id: Principal,
-    user_id: Principal,
+    users_canister_id: UsersCanisterId,
+    user_id: WalletPrincipalId,
     auto_start: bool,
 ) -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     let mut table_state = {
         let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
         let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
@@ -874,18 +901,22 @@ async fn player_sitting_in(
             .ok_or(TableError::CanisterCallError(
                 "Backend principal not found.".to_string(),
             ))?;
-        validate_caller(vec![user_id, user.principal_id, backend_principal]);
+        validate_caller(vec![user_id.0, user.principal_id.0, backend_principal]);
         table_state.clone()
     };
 
     match table_state.users.get(&user_id) {
         Some(user) => {
-            if user.balance < table_state.big_blind {
+            if user.balance.0 < table_state.big_blind.0 {
                 table_state
                     .kick_user(user_id, "Insufficient Funds".to_string())
                     .map_err(|e| e.into_inner())?;
-                remove_users_active_table(users_canister_id, user_id, ic_cdk::api::canister_self())
-                    .await?;
+                remove_users_active_table(
+                    users_canister_id,
+                    user_id,
+                    TableId(ic_cdk::api::canister_self()),
+                )
+                .await?;
 
                 *TABLE.lock().map_err(|_| TableError::LockError)? = Some(table_state);
                 return Err(GameError::InsufficientFunds.into());
@@ -930,7 +961,8 @@ async fn player_sitting_in(
         && !table_state.is_game_ongoing()
         && auto_start
     {
-        if let Err(e) = start_new_betting_round_wrapper(ic_cdk::api::canister_self()).await {
+        if let Err(e) = start_new_betting_round_wrapper(TableId(ic_cdk::api::canister_self())).await
+        {
             ic_cdk::println!("Error starting new betting round: {:?}", e);
             if matches!(e, TableError::CanisterCallError(_)) {
                 return Err(e);
@@ -942,8 +974,8 @@ async fn player_sitting_in(
 }
 
 #[ic_cdk::update]
-fn place_bet(user_principal: Principal, bet_type: BetType) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn place_bet(user_principal: WalletPrincipalId, bet_type: BetType) -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
@@ -957,7 +989,11 @@ fn place_bet(user_principal: Principal, bet_type: BetType) -> Result<(), TableEr
         .ok_or(TableError::CanisterCallError(
             "Backend principal not found.".to_string(),
         ))?;
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     if table_state
         .get_player_at_seat(table_state.current_player_index)
@@ -977,8 +1013,8 @@ fn place_bet(user_principal: Principal, bet_type: BetType) -> Result<(), TableEr
 }
 
 #[ic_cdk::update]
-fn fold(user_principal: Principal, is_pre_fold: bool) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn fold(user_principal: WalletPrincipalId, is_pre_fold: bool) -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
@@ -992,7 +1028,11 @@ fn fold(user_principal: Principal, is_pre_fold: bool) -> Result<(), TableError> 
         .ok_or(TableError::CanisterCallError(
             "Backend principal not found.".to_string(),
         ))?;
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     if is_pre_fold {
         table_state
@@ -1008,8 +1048,8 @@ fn fold(user_principal: Principal, is_pre_fold: bool) -> Result<(), TableError> 
 }
 
 #[ic_cdk::update]
-fn check(user_principal: Principal) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn check(user_principal: WalletPrincipalId) -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
@@ -1023,7 +1063,11 @@ fn check(user_principal: Principal) -> Result<(), TableError> {
         .ok_or(TableError::CanisterCallError(
             "Backend principal not found.".to_string(),
         ))?;
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     if let SeatStatus::Occupied(current_player) =
         table_state.seats[table_state.current_player_index]
@@ -1053,8 +1097,8 @@ fn check(user_principal: Principal) -> Result<(), TableError> {
 }
 
 #[ic_cdk::update]
-fn handle_timer_expiration(user_id: Principal) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn handle_timer_expiration(user_id: WalletPrincipalId) -> Result<(), TableError> {
+    handle_cycle_check().await;
     let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
     let backend_principal = BACKEND_PRINCIPAL
@@ -1065,7 +1109,7 @@ fn handle_timer_expiration(user_id: Principal) -> Result<(), TableError> {
         ))?;
     let mut valid_callers = (*CONTROLLER_PRINCIPALS).clone();
     valid_callers.push(backend_principal);
-    valid_callers.push(table_state.id);
+    valid_callers.push(table_state.id.0);
     validate_caller(valid_callers);
 
     let res = if table_state.is_users_current_total_bet_equal_to_highest_bet(user_id) {
@@ -1083,7 +1127,7 @@ fn handle_timer_expiration(user_id: Principal) -> Result<(), TableError> {
 
 #[ic_cdk::update]
 async fn start_new_betting_round() -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     let raw_bytes = ic_cdk::management_canister::raw_rand().await;
     let mut raw_bytes = raw_bytes.map_err(|e| {
@@ -1092,11 +1136,11 @@ async fn start_new_betting_round() -> Result<(), TableError> {
 
     // Get current time in nanoseconds as seed
     let time_seed = ic_cdk::api::time();
-    
+
     // Reshuffle the bytes using time as seed
     reshuffle_bytes_hash(&mut raw_bytes, time_seed);
 
-    let (kicked_players, action_logs, table_id, total_users, seated_out_kicked_players, users) = {
+    let (kicked_players, action_logs, table_id, seated_out_kicked_players, users) = {
         let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
         let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
         let backend_principal = BACKEND_PRINCIPAL
@@ -1106,7 +1150,7 @@ async fn start_new_betting_round() -> Result<(), TableError> {
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table_state.id]);
+        validate_caller(vec![backend_principal, table_state.id.0]);
 
         if table_state.config.is_paused.unwrap_or(false) {
             ic_cdk::println!("Game is paused.");
@@ -1144,37 +1188,10 @@ async fn start_new_betting_round() -> Result<(), TableError> {
             kicked_players,
             action_logs,
             table_state.id,
-            table_state.users.len(),
             seated_out_kicked_players,
             table_state.users.clone(),
         )
     };
-
-    if !kicked_players.is_empty() || !seated_out_kicked_players.is_empty() {
-        if let Err(e) = update_table_player_count(total_users) {
-            ic_cdk::println!("Error updating table player count: {}", e);
-        }
-
-        // TODO: This should be reduced to one call.
-        if !kicked_players.is_empty() {
-            for player in &kicked_players {
-                if let Err(e) =
-                    update_player_count_tournament(UserTournamentAction::Leave(player.0))
-                {
-                    ic_cdk::println!("Error updating tournament table player count: {}", e);
-                }
-            }
-        }
-        if !seated_out_kicked_players.is_empty() {
-            for player in &seated_out_kicked_players {
-                if let Err(e) =
-                    update_player_count_tournament(UserTournamentAction::Leave(player.0))
-                {
-                    ic_cdk::println!("Error updating tournament table player count: {}", e);
-                }
-            }
-        }
-    }
 
     let mut total_kicked_players = kicked_players.clone();
     total_kicked_players.extend(seated_out_kicked_players.clone());
@@ -1193,7 +1210,7 @@ async fn start_new_betting_round() -> Result<(), TableError> {
     ic_cdk::futures::spawn(async move {
         for (user, balance) in total_kicked_users {
             match kick_player_wrapper(
-                ic_cdk::api::canister_self(),
+                TableId(ic_cdk::api::canister_self()),
                 user.users_canister_id,
                 user.principal_id,
                 balance,
@@ -1201,7 +1218,7 @@ async fn start_new_betting_round() -> Result<(), TableError> {
             .await
             {
                 Ok(_) => {
-                    ic_cdk::println!("Kicked player: {}", user.principal_id);
+                    ic_cdk::println!("Kicked player: {}", user.principal_id.0.to_text());
                 }
                 Err(e) => {
                     ic_cdk::println!("Error kicking player: {:?}", e);
@@ -1266,7 +1283,7 @@ async fn start_new_betting_round() -> Result<(), TableError> {
 
 #[ic_cdk::update]
 async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     handle_table_validity_check()?;
 
     let table = {
@@ -1308,7 +1325,7 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
 
             let mut house_rake = rake_amount / 2;
             rake_amount -= house_rake;
-            let mut referrers: HashMap<Principal, User> = HashMap::new();
+            let mut referrers: HashMap<WalletPrincipalId, User> = HashMap::new();
 
             // For each player at the table, check if they were referred
             for user in table.users.users.values() {
@@ -1348,7 +1365,7 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
                         if referrer_amount > 0 && referrer_amount < house_rake {
                             // Transfer rake share to referrer
                             if let Err(e) = currency_manager
-                                .withdraw(&currency, referrer_principal, referrer_amount)
+                                .withdraw(&currency, referrer_principal.0, referrer_amount)
                                 .await
                             {
                                 ic_cdk::println!("Error distributing referral rake: {:?}", e);
@@ -1363,6 +1380,12 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
                 }
             }
 
+            let fee = if currency == Currency::BTC {
+                10
+            } else {
+                ic_ledger_types::DEFAULT_FEE.e8s()
+            };
+
             if let Some((rake_share_principal, _rake_share_account_id)) =
                 table.config.is_shared_rake
             {
@@ -1370,7 +1393,7 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
                     .withdraw_rake(
                         &currency,
                         *RAKE_WALLET_ADDRESS_PRINCIPAL,
-                        house_rake - ic_ledger_types::DEFAULT_FEE.e8s(),
+                        house_rake - fee,
                     )
                     .await
                 {
@@ -1380,7 +1403,7 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
                     .withdraw(
                         &currency,
                         rake_share_principal,
-                        rake_amount - ic_ledger_types::DEFAULT_FEE.e8s(),
+                        rake_amount - fee,
                     )
                     .await
                 {
@@ -1390,7 +1413,7 @@ async fn withdraw_rake(rake_amount: u64) -> Result<(), TableError> {
                 .withdraw_rake(
                     &currency,
                     *RAKE_WALLET_ADDRESS_PRINCIPAL,
-                    rake_amount + house_rake - ic_ledger_types::DEFAULT_FEE.e8s(),
+                    rake_amount + house_rake - fee,
                 )
                 .await
             {
@@ -1435,7 +1458,7 @@ async fn return_all_cycles_to_index() -> Result<(), TableError> {
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table_state.id]);
+        validate_caller(vec![backend_principal, table_state.id.0]);
     }
     let all_cycles = ic_cdk::api::canister_cycle_balance().saturating_sub(35_000_000_000);
     if all_cycles == 0 {
@@ -1460,7 +1483,7 @@ async fn return_cycles_to_index(cycles_amount: u128) -> Result<(), TableError> {
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table_state.id]);
+        validate_caller(vec![backend_principal, table_state.id.0]);
     }
     transfer_cycles_to_table_index(cycles_amount).await
 }
@@ -1492,8 +1515,12 @@ async fn transfer_cycles_to_table_index(cycles_amount: u128) -> Result<(), Table
 }
 
 #[ic_cdk::update]
-async fn update_blinds(small_blind: u64, big_blind: u64, ante: AnteType) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn update_blinds(
+    small_blind: SmallBlind,
+    big_blind: BigBlind,
+    ante: AnteType,
+) -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
@@ -1504,7 +1531,7 @@ async fn update_blinds(small_blind: u64, big_blind: u64, ante: AnteType) -> Resu
             "Backend principal not found.".to_string(),
         ))?;
 
-    validate_caller(vec![backend_principal, table.id]);
+    validate_caller(vec![backend_principal, table.id.0]);
 
     let ante = if ante != AnteType::None {
         Some(ante)
@@ -1528,7 +1555,7 @@ async fn update_blinds(small_blind: u64, big_blind: u64, ante: AnteType) -> Resu
 
 #[ic_cdk::query]
 async fn get_free_seat_index() -> Result<Option<u8>, TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     let table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_ref().ok_or(TableError::TableNotFound)?;
@@ -1538,7 +1565,7 @@ async fn get_free_seat_index() -> Result<Option<u8>, TableError> {
 
 #[ic_cdk::update]
 async fn clear_table() -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     {
         let mut table_state = TABLE.lock().map_err(|_| TableError::LockError)?;
         let table_state = table_state.as_mut().ok_or(TableError::TableNotFound)?;
@@ -1549,7 +1576,7 @@ async fn clear_table() -> Result<(), TableError> {
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table_state.id]);
+        validate_caller(vec![backend_principal, table_state.id.0]);
     }
 
     let users_to_remove = {
@@ -1562,7 +1589,7 @@ async fn clear_table() -> Result<(), TableError> {
             .users
             .iter()
             .map(|(principal, user)| (*principal, user.users_canister_id))
-            .collect::<Vec<(Principal, Principal)>>()
+            .collect::<Vec<(WalletPrincipalId, UsersCanisterId)>>()
     };
 
     // Create futures for all leave_table operations
@@ -1571,12 +1598,20 @@ async fn clear_table() -> Result<(), TableError> {
             .into_iter()
             .map(|(user_id, users_canister_id)| async move {
                 // TODO: Handle this properly
-                match leave_table_wrapper(ic_cdk::api::canister_self(), users_canister_id, user_id)
-                    .await
+                match leave_table_wrapper(
+                    TableId(ic_cdk::api::canister_self()),
+                    users_canister_id,
+                    user_id,
+                )
+                .await
                 {
                     Ok(_) => Ok(()),
                     Err(e) => {
-                        ic_cdk::println!("Error removing user {}: {:?}", users_canister_id, e);
+                        ic_cdk::println!(
+                            "Error removing user {}: {:?}",
+                            users_canister_id.0.to_text(),
+                            e
+                        );
                         Err(e)
                     }
                 }
@@ -1596,7 +1631,7 @@ async fn clear_table() -> Result<(), TableError> {
 }
 
 #[ic_cdk::query]
-fn get_seat_index(user: Principal) -> Result<Option<u8>, TableError> {
+fn get_seat_index(user: WalletPrincipalId) -> Result<Option<u8>, TableError> {
     let table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_ref().ok_or(TableError::TableNotFound)?;
 
@@ -1604,8 +1639,8 @@ fn get_seat_index(user: Principal) -> Result<Option<u8>, TableError> {
 }
 
 #[ic_cdk::update]
-fn pause_table() -> Result<(), TableError> {
-    handle_cycle_check();
+async fn pause_table() -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
@@ -1616,15 +1651,15 @@ fn pause_table() -> Result<(), TableError> {
             "Backend principal not found.".to_string(),
         ))?;
 
-    validate_caller(vec![backend_principal, table.id]);
+    validate_caller(vec![backend_principal, table.id.0]);
 
     table.config.is_paused = Some(true);
     Ok(())
 }
 
 #[ic_cdk::update]
-fn pause_table_for_addon(duration: u64) -> Result<(), TableError> {
-    handle_cycle_check();
+async fn pause_table_for_addon(duration: u64) -> Result<(), TableError> {
+    handle_cycle_check().await;
 
     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
@@ -1638,7 +1673,7 @@ fn pause_table_for_addon(duration: u64) -> Result<(), TableError> {
             "Backend principal not found.".to_string(),
         ))?;
 
-    validate_caller(vec![backend_principal, table.id]);
+    validate_caller(vec![backend_principal, table.id.0]);
 
     ic_cdk::println!("Pausing table");
 
@@ -1656,7 +1691,7 @@ fn pause_table_for_addon(duration: u64) -> Result<(), TableError> {
 
 #[ic_cdk::update]
 async fn resume_table() -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     ic_cdk::println!("Resuming table");
     let is_paused = {
         let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
@@ -1671,14 +1706,15 @@ async fn resume_table() -> Result<(), TableError> {
                 "Backend principal not found.".to_string(),
             ))?;
 
-        validate_caller(vec![backend_principal, table.id]);
+        validate_caller(vec![backend_principal, table.id.0]);
 
         table.config.is_paused = Some(false);
         false
     };
 
     if !is_paused {
-        if let Err(e) = start_new_betting_round_wrapper(ic_cdk::api::canister_self()).await {
+        if let Err(e) = start_new_betting_round_wrapper(TableId(ic_cdk::api::canister_self())).await
+        {
             ic_cdk::println!("Error resuming table: {:?}", e);
             return Ok(());
         }
@@ -1688,7 +1724,7 @@ async fn resume_table() -> Result<(), TableError> {
 
 #[ic_cdk::update]
 async fn set_as_final_table() -> Result<(), TableError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
     let mut table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_mut().ok_or(TableError::TableNotFound)?;
     let backend_principal = BACKEND_PRINCIPAL
@@ -1698,7 +1734,7 @@ async fn set_as_final_table() -> Result<(), TableError> {
             "Backend principal not found.".to_string(),
         ))?;
 
-    validate_caller(vec![backend_principal, table.id]);
+    validate_caller(vec![backend_principal, table.id.0]);
 
     if let Some(TableType::Tournament {
         tournament_id: _,
@@ -1728,7 +1764,7 @@ async fn get_rake_wallet_principal() -> Principal {
 }
 
 #[ic_cdk::update]
-async fn get_players_on_table() -> Result<Vec<Principal>, TableError> {
+async fn get_players_on_table() -> Result<Vec<WalletPrincipalId>, TableError> {
     let table = TABLE.lock().map_err(|_| TableError::LockError)?;
     let table = table.as_ref().ok_or(TableError::TableNotFound)?;
 
@@ -1760,13 +1796,13 @@ async fn get_players_on_table() -> Result<Vec<Principal>, TableError> {
 // Chat functions
 
 #[ic_cdk::update]
-fn send_chat_message(
-    user_principal: Principal,
+async fn send_chat_message(
+    user_principal: WalletPrincipalId,
     content: String,
     message_type: ChatMessageType,
     recipient: Option<Principal>,
 ) -> Result<u64, ChatError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     // Validate the user is in the table
     let table_state = TABLE
@@ -1779,7 +1815,7 @@ fn send_chat_message(
     let user = table_state
         .users
         .get(&user_principal)
-        .ok_or(ChatError::UserNotInTable(user_principal))?;
+        .ok_or(ChatError::UserNotInTable(user_principal.0))?;
 
     // Validate caller
     let backend_principal = BACKEND_PRINCIPAL
@@ -1789,7 +1825,11 @@ fn send_chat_message(
             "Backend principal not found".to_string(),
         ))?;
 
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     // Check message length
     if content.len() > 2000 {
@@ -1807,7 +1847,7 @@ fn send_chat_message(
         .lock()
         .map_err(|_| ChatError::LockError("Failed to acquire chat history lock".to_string()))?;
     let msg_id = chat_history.add_message(
-        user_principal,
+        user_principal.0,
         sender_name,
         content,
         message_type,
@@ -1818,12 +1858,12 @@ fn send_chat_message(
 }
 
 #[ic_cdk::update]
-fn edit_chat_message(
-    user_principal: Principal,
+async fn edit_chat_message(
+    user_principal: WalletPrincipalId,
     message_id: u64,
     new_content: String,
 ) -> Result<(), ChatError> {
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     // Validate the user is in the table
     let table_state = TABLE
@@ -1836,7 +1876,7 @@ fn edit_chat_message(
     let user = table_state
         .users
         .get(&user_principal)
-        .ok_or(ChatError::UserNotInTable(user_principal))?;
+        .ok_or(ChatError::UserNotInTable(user_principal.0))?;
 
     // Validate caller
     let backend_principal = BACKEND_PRINCIPAL
@@ -1846,7 +1886,11 @@ fn edit_chat_message(
             "Backend principal not found".to_string(),
         ))?;
 
-    validate_caller(vec![user_principal, user.principal_id, backend_principal]);
+    validate_caller(vec![
+        user_principal.0,
+        user.principal_id.0,
+        backend_principal,
+    ]);
 
     // Check message length
     if new_content.len() > 2000 {
@@ -1860,7 +1904,7 @@ fn edit_chat_message(
     let mut chat_history = CHAT_HISTORY
         .lock()
         .map_err(|_| ChatError::LockError("Failed to acquire chat history lock".to_string()))?;
-    chat_history.edit_message(message_id, new_content, user_principal)?;
+    chat_history.edit_message(message_id, new_content, user_principal.0)?;
 
     Ok(())
 }
@@ -1877,16 +1921,18 @@ fn get_recent_chat_messages(
 }
 
 #[ic_cdk::query]
-fn get_chat_messages_for_user(user_principal: Principal) -> Result<Vec<ChatMessage>, ChatError> {
+fn get_chat_messages_for_user(
+    user_principal: WalletPrincipalId,
+) -> Result<Vec<ChatMessage>, ChatError> {
     let chat_history = CHAT_HISTORY
         .lock()
         .map_err(|_| ChatError::LockError("Failed to acquire chat history lock".to_string()))?;
-    Ok(chat_history.get_messages_for_user(user_principal))
+    Ok(chat_history.get_messages_for_user(user_principal.0))
 }
 
 #[ic_cdk::update]
-fn clear_chat_history() -> Result<(), ChatError> {
-    handle_cycle_check();
+async fn clear_chat_history() -> Result<(), ChatError> {
+    handle_cycle_check().await;
 
     // Only allow the backend to clear chat history
     let backend_principal = BACKEND_PRINCIPAL
@@ -1912,7 +1958,7 @@ async fn get_canister_status_formatted() -> Result<String, TableError> {
     let controllers = (*CONTROLLER_PRINCIPALS).clone();
     validate_caller(controllers);
 
-    handle_cycle_check();
+    handle_cycle_check().await;
 
     // Call the management canister to get status
     let canister_status_arg = CanisterStatusArgs {

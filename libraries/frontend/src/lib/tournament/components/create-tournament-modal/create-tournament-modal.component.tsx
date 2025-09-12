@@ -20,7 +20,6 @@ import {
 
 import { Config as BasicsConfig } from './steps/basics-step.config';
 import { Config as BuyInConfig } from './steps/buy-in.config';
-import { Config as PayoutsConfig } from './steps/payouts.config';
 import { Config as PlayerSettingsStepConfig } from './steps/players-step.config';
 import { Config as PreviewConfig } from './steps/preview-step.config';
 import { Config as TypeConfig, defaultBuyInOptions } from './steps/type-step.config';
@@ -32,7 +31,6 @@ const STEPS: SteppedModalStep<StepsProps>[] = [
   PlayerSettingsStepConfig,
   BuyInConfig,
   TypeConfig,
-  PayoutsConfig,
   AppeareanceConfig,
   TimeLimitConfig,
   PreviewConfig,
@@ -83,7 +81,7 @@ export const CreateTournamentModalComponent = memo<CreateTournamentModalProps>(
         min_players,
         max_players,
         speed_type,
-        payout_structure,
+        guaranteed_prize_pool,
         timer_duration,
         auto_start_timer,
         max_inactive_turns,
@@ -109,8 +107,8 @@ export const CreateTournamentModalComponent = memo<CreateTournamentModalProps>(
           max_players,
 
           speed_type,
+          guaranteed_prize_pool,
 
-          payout_structure,
           require_proof_of_humanity,
         };
 

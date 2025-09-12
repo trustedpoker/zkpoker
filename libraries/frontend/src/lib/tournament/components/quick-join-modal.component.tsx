@@ -65,6 +65,8 @@ export const QuickJoinModal = memo<Pick<Props, 'tournament_type' | 'id' | 'buy_i
     },
   });
 
+  if (!tournament_type) return null;
+
   return (
     <Modal open={open} onClose={onClose}>
       <div className="flex flex-col gap-3">
