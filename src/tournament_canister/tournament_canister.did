@@ -169,6 +169,8 @@ type GameType = variant {
   SpreadLimit : record { nat64; nat64 };
   PotLimit : nat64;
   FixedLimit : record { nat64; nat64 };
+  PotLimitOmaha4 : nat64;
+  PotLimitOmaha5 : nat64;
 };
 type PayoutPercentage = record { position : nat16; percentage : nat8 };
 type PayoutStructure = record { payouts : vec PayoutPercentage };

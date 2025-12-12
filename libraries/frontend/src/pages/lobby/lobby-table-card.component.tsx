@@ -189,6 +189,10 @@ export const LobbyTableCardComponent = memo<
               return <ListItem rightLabel="No limit">Game type</ListItem>;
             if ("PotLimit" in game_type)
               return <ListItem rightLabel="Pot limit">Game type</ListItem>;
+            if ("PotLimitOmaha4" in game_type)
+              return <ListItem rightLabel="PLO 4-card">Game type</ListItem>;
+            if ("PotLimitOmaha5" in game_type)
+              return <ListItem rightLabel="PLO 5-card">Game type</ListItem>;
             if ("SpreadLimit" in game_type)
               return (
                 <>

@@ -30,6 +30,8 @@ const SelectGameTypeComponent = memo<{
     FixedLimit: [bigint | undefined, bigint | undefined];
     SpreadLimit: [bigint | undefined, bigint | undefined];
     PotLimit: bigint | undefined;
+    PotLimitOmaha4: bigint | undefined;
+    PotLimitOmaha5: bigint | undefined;
   }>({
     NoLimit: type && "NoLimit" in type ? type.NoLimit : undefined,
     SpreadLimit:
@@ -37,6 +39,8 @@ const SelectGameTypeComponent = memo<{
     FixedLimit:
       type && "FixedLimit" in type ? type.FixedLimit : [undefined, undefined],
     PotLimit: type && "PotLimit" in type ? type.PotLimit : undefined,
+    PotLimitOmaha4: type && "PotLimitOmaha4" in type ? type.PotLimitOmaha4 : undefined,
+    PotLimitOmaha5: type && "PotLimitOmaha5" in type ? type.PotLimitOmaha5 : undefined,
   });
 
   useEffect(() => {
@@ -52,6 +56,8 @@ const SelectGameTypeComponent = memo<{
       FixedLimit:
         type && "FixedLimit" in type ? type.FixedLimit : [undefined, undefined],
       PotLimit: type && "PotLimit" in type ? type.PotLimit : undefined,
+      PotLimitOmaha4: type && "PotLimitOmaha4" in type ? type.PotLimitOmaha4 : undefined,
+      PotLimitOmaha5: type && "PotLimitOmaha5" in type ? type.PotLimitOmaha5 : undefined,
     });
   }, [type && GameTypeSerializer.serialize(type)]);
 
@@ -83,6 +89,12 @@ const SelectGameTypeComponent = memo<{
         case "PotLimit":
           game_type = { PotLimit: nLimits.PotLimit as bigint };
           break;
+        case "PotLimitOmaha4":
+          game_type = { PotLimitOmaha4: nLimits.PotLimitOmaha4 as bigint };
+          break;
+        case "PotLimitOmaha5":
+          game_type = { PotLimitOmaha5: nLimits.PotLimitOmaha5 as bigint };
+          break;
       }
       onChange(game_type);
     },
@@ -107,15 +119,69 @@ const SelectGameTypeComponent = memo<{
             },
           ],
           values: [
-            TokenAmountToFloat(limits.NoLimit, meta),
+            TokenAmountToFloat(limits.PotLimit, meta),
             TokenAmountToFloat(
-              limits.NoLimit ? limits.NoLimit * 2n : undefined,
+              limits.PotLimit ? limits.PotLimit * 2n : undefined,
               meta,
             ),
           ],
           onChange: (values) =>
-            propagate("NoLimit", {
-              NoLimit: FloatToTokenAmount(values[0] as number, meta),
+            propagate("PotLimit", {
+              PotLimit: FloatToTokenAmount(values[0] as number, meta),
+            }),
+        };
+      case "PotLimitOmaha4":
+        return {
+          fields: [
+            {
+              label: "Small Blind",
+              type: "number",
+              symbol: <CurrencyIconComponent currency={{ ICP: null }} />,
+            },
+            {
+              label: "Big Blind",
+              type: "number",
+              symbol: <CurrencyIconComponent currency={{ ICP: null }} />,
+              disabled: true,
+            },
+          ],
+          values: [
+            TokenAmountToFloat(limits.PotLimitOmaha4, meta),
+            TokenAmountToFloat(
+              limits.PotLimitOmaha4 ? limits.PotLimitOmaha4 * 2n : undefined,
+              meta,
+            ),
+          ],
+          onChange: (values) =>
+            propagate("PotLimitOmaha4", {
+              PotLimitOmaha4: FloatToTokenAmount(values[0] as number, meta),
+            }),
+        };
+      case "PotLimitOmaha5":
+        return {
+          fields: [
+            {
+              label: "Small Blind",
+              type: "number",
+              symbol: <CurrencyIconComponent currency={{ ICP: null }} />,
+            },
+            {
+              label: "Big Blind",
+              type: "number",
+              symbol: <CurrencyIconComponent currency={{ ICP: null }} />,
+              disabled: true,
+            },
+          ],
+          values: [
+            TokenAmountToFloat(limits.PotLimitOmaha5, meta),
+            TokenAmountToFloat(
+              limits.PotLimitOmaha5 ? limits.PotLimitOmaha5 * 2n : undefined,
+              meta,
+            ),
+          ],
+          onChange: (values) =>
+            propagate("PotLimitOmaha5", {
+              PotLimitOmaha5: FloatToTokenAmount(values[0] as number, meta),
             }),
         };
       case "NoLimit":
@@ -222,6 +288,8 @@ const SelectGameTypeComponent = memo<{
           { value: "SpreadLimit", label: "Spread" },
           { value: "FixedLimit", label: "Fixed" },
           { value: "PotLimit", label: "Pot" },
+          { value: "PotLimitOmaha4", label: "PLO 4" },
+          { value: "PotLimitOmaha5", label: "PLO 5" },
         ]}
       />
       {formData && (

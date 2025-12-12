@@ -168,6 +168,8 @@ type GameType = variant {
   SpreadLimit : record { nat64; nat64 };
   PotLimit : nat64;
   FixedLimit : record { nat64; nat64 };
+  PotLimitOmaha4 : nat64;
+  PotLimitOmaha5 : nat64;
 };
 type Notification = record {
   id : nat64;

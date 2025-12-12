@@ -14,9 +14,11 @@ export const GameTypeSerializer = CreateSerializer<GameType>(
   (value) =>
     matchRustEnum(value)({
       NoLimit: (pl): string => [0, pl].join(":"),
-      FixedLimit: (pl): string => [0, pl.join("|")].join(":"),
-      PotLimit: (pl): string => [0, pl].join(":"),
-      SpreadLimit: (pl): string => [0, pl.join("|")].join(":"),
+      FixedLimit: (pl): string => [1, pl.join("|")].join(":"),
+      PotLimit: (pl): string => [2, pl].join(":"),
+      SpreadLimit: (pl): string => [3, pl.join("|")].join(":"),
+      PotLimitOmaha4: (pl): string => [4, pl].join(":"),
+      PotLimitOmaha5: (pl): string => [5, pl].join(":"),
     }),
   (value) => {
     const [type, limit] = value.split(":");
@@ -33,6 +35,10 @@ export const GameTypeSerializer = CreateSerializer<GameType>(
         const SpreadLimit = limit.split("|").map(BigInt) as [bigint, bigint];
         return { SpreadLimit };
       }
+      case "4":
+        return { PotLimitOmaha4: BigInt(limit) };
+      case "5":
+        return { PotLimitOmaha5: BigInt(limit) };
       default:
         throw new Error(`Invalid game type: ${value}`);
     }

@@ -92,6 +92,40 @@ const BlindsInput = memo<{
         />
 
       </List>,
+    PotLimitOmaha4: (small_blind) =>
+      <List>
+        <CurrencyInputComponent
+          label="Small Blind"
+          value={small_blind}
+          min={0n}
+          onChange={(v) => onChange({ PotLimitOmaha4: v })}
+          currencyType={currencyType}
+        />
+        <CurrencyInputComponent
+          label="Big Blind"
+          value={small_blind * 2n}
+          onChange={(v) => onChange({ PotLimitOmaha4: v })}
+          currencyType={currencyType}
+          disabled
+        />
+      </List>,
+    PotLimitOmaha5: (small_blind) =>
+      <List>
+        <CurrencyInputComponent
+          label="Small Blind"
+          value={small_blind}
+          min={0n}
+          onChange={(v) => onChange({ PotLimitOmaha5: v })}
+          currencyType={currencyType}
+        />
+        <CurrencyInputComponent
+          label="Big Blind"
+          value={small_blind * 2n}
+          onChange={(v) => onChange({ PotLimitOmaha5: v })}
+          currencyType={currencyType}
+          disabled
+        />
+      </List>,
   });
 },
   (prevProps, nextProps) =>
@@ -109,6 +143,8 @@ export const GameTypeStepComponent = memo<StepComponentProps<Value> & { hideFake
   const [limits, setLimits] = useState({
     NoLimit: 0n,
     PotLimit: 0n,
+    PotLimitOmaha4: 0n,
+    PotLimitOmaha5: 0n,
     FixedLimit: (data.game_type && "FixedLimit" in data.game_type
       ? [data.game_type.FixedLimit[0], data.game_type.FixedLimit[1]]
       : []) as [bigint | undefined, bigint | undefined],
@@ -128,6 +164,12 @@ export const GameTypeStepComponent = memo<StepComponentProps<Value> & { hideFake
           break;
         case "PotLimit":
           game_type = { PotLimit: nLimits.PotLimit as bigint };
+          break;
+        case "PotLimitOmaha4":
+          game_type = { PotLimitOmaha4: nLimits.PotLimitOmaha4 as bigint };
+          break;
+        case "PotLimitOmaha5":
+          game_type = { PotLimitOmaha5: nLimits.PotLimitOmaha5 as bigint };
           break;
         case "SpreadLimit":
           if (
@@ -184,6 +226,8 @@ export const GameTypeStepComponent = memo<StepComponentProps<Value> & { hideFake
           { value: "SpreadLimit", label: "Spread limit" },
           { value: "FixedLimit", label: "Fixed limit" },
           { value: "PotLimit", label: "Pot limit" },
+          { value: "PotLimitOmaha4", label: "PLO 4-card" },
+          { value: "PotLimitOmaha5", label: "PLO 5-card" },
         ]}
       />
       <BlindsInput
@@ -207,6 +251,14 @@ export const Config: SteppedModalStep<Value> = {
     }
     if ("PotLimit" in game_type) {
       if (game_type.PotLimit <= 0) return ["Bets must be greater than 0"];
+      return true;
+    }
+    if ("PotLimitOmaha4" in game_type) {
+      if (game_type.PotLimitOmaha4 <= 0) return ["Bets must be greater than 0"];
+      return true;
+    }
+    if ("PotLimitOmaha5" in game_type) {
+      if (game_type.PotLimitOmaha5 <= 0) return ["Bets must be greater than 0"];
       return true;
     }
     if ("SpreadLimit" in game_type) {

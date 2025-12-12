@@ -85,6 +85,15 @@ export const ProvideHUDBettingContext = memo<{ children: ReactNode }>(
     const callValue = useMemo(() => table.highest_bet, [table, user]);
     const showErrorModal = useErrorModal();
     const [showInlineInput, setShowInlineInput] = useState(false);
+    // Live pot (sum of current_total_bet) to align with backend pot checks
+    const livePot = useMemo(
+      () =>
+        table.user_table_data.reduce(
+          (sum, [, data]) => sum + (data?.current_total_bet ?? 0n),
+          0n,
+        ),
+      [table.user_table_data],
+    );
 
     const isUserTurn = useMemo(() => table.current_player_index === userIndex, [
       table,
@@ -108,47 +117,76 @@ export const ProvideHUDBettingContext = memo<{ children: ReactNode }>(
           TokenAmountToFloat(amount, meta),
           label,
         ]);
-      if (table.last_raise) {
-        _quickActions.push(
-          [getRaiseToFromDelta(table.last_raise * 2n), "Min"],
-          [getRaiseToFromDelta(table.last_raise * 3n), "3x Last raise"],
-        );
-      } else if (table.big_blind) {
-        _quickActions.push(
-          [getRaiseToFromDelta(table.big_blind * 2n), "Min"],
-          [getRaiseToFromDelta(table.big_blind * 3n), "3x BB"],
-        );
-      }
 
-      const potToValue = getRaiseToFromDelta(table.pot);
-      // If pot is bigger than min bet
-      if (
-        table.pot &&
-        _quickActions.length > 0 &&
-        potToValue > _quickActions[0][0]
-      ) {
-        _quickActions.push([potToValue, "Pot"]);
+      const isPotLimit = "PotLimit" in table.config.game_type ||
+        "PotLimitOmaha4" in table.config.game_type ||
+        "PotLimitOmaha5" in table.config.game_type;
 
-        // If half pot is bigger than min bet
-        const halfPotToValue = getRaiseToFromDelta(table.pot / 2n);
-        if (halfPotToValue > _quickActions[0][0])
-          _quickActions.push([halfPotToValue, "1/2 Pot"]);
-      }
+      const currentBet = user.data.current_total_bet;
+      const callValue = table.highest_bet;
 
-      _quickActions = _quickActions.filter(
-        ([amount]) => getPrice(amount) < tableUser.balance,
-      );
+      if (isPotLimit) {
+        const potValue = livePot;
+        const halfPotValue = livePot / 2n;
+        const minIncrement = table.big_blind || 1n;
 
-      if (tableUser.balance > 0n)
-        _quickActions.push([
-          user.data.current_total_bet + tableUser.balance,
-          "All in",
-        ]);
+        // Pot
+        if (potValue > currentBet && getPrice(potValue) <= tableUser.balance) {
+          _quickActions.push([potValue, "Pot"]);
+        }
+        // 1/2 Pot
+        if (halfPotValue > currentBet && halfPotValue < potValue && getPrice(halfPotValue) <= tableUser.balance) {
+          _quickActions.push([halfPotValue, "1/2 Pot"]);
+        }
+        // Min raise: call + increment, capped at pot
+        const minRaise = callValue + minIncrement;
+        const validMinRaise = minRaise <= potValue ? minRaise : potValue;
+        if (
+          validMinRaise > currentBet &&
+          validMinRaise !== potValue &&
+          validMinRaise !== halfPotValue &&
+          getPrice(validMinRaise) <= tableUser.balance
+        ) {
+          _quickActions.push([validMinRaise, "Min"]);
+        }
+      } else {
+        // Non pot-limit logic (original)
+        if (table.last_raise) {
+          _quickActions.push(
+            [getRaiseToFromDelta(table.last_raise * 2n), "Min"],
+            [getRaiseToFromDelta(table.last_raise * 3n), "3x Last raise"],
+          );
+        } else if (table.big_blind) {
+          _quickActions.push(
+            [getRaiseToFromDelta(table.big_blind * 2n), "Min"],
+            [getRaiseToFromDelta(table.big_blind * 3n), "3x BB"],
+          );
+        }
 
-      if ("PotLimit" in table.config.game_type)
+        const potToValue = getRaiseToFromDelta(table.pot);
+        if (
+          table.pot &&
+          _quickActions.length > 0 &&
+          potToValue > _quickActions[0][0]
+        ) {
+          _quickActions.push([potToValue, "Pot"]);
+          const halfPotToValue = getRaiseToFromDelta(table.pot / 2n);
+          if (halfPotToValue > _quickActions[0][0])
+            _quickActions.push([halfPotToValue, "1/2 Pot"]);
+        }
+
         _quickActions = _quickActions.filter(
-          ([amount]) => getPrice(amount) > table.pot,
+          ([amount]) => getPrice(amount) < tableUser.balance,
         );
+      }
+
+      // All-in
+      if (tableUser.balance > 0n) {
+        const allInValue = currentBet + tableUser.balance;
+        if (!isPotLimit || allInValue <= livePot) {
+          _quickActions.push([allInValue, "All in"]);
+        }
+      }
 
       return _quickActions.sort((a, b) =>
         TokenAmountToFloat(a[0] - b[0], meta),
@@ -158,15 +196,58 @@ export const ProvideHUDBettingContext = memo<{ children: ReactNode }>(
       tableUser,
       user,
       getRaiseToFromDelta,
-      getRaiseToFromDelta,
       getPrice,
       isUserTurn,
+      meta,
+      livePot,
     ]);
 
+    // Exclude "All in" from raise quick actions
+    const raiseActions = useMemo(
+      () => quickActions.filter(([, label]) => label !== "All in"),
+      [quickActions],
+    );
+
     const [min, max] = useMemo(() => {
-      if (!quickActions.length) return [0n, 0n];
-      return [quickActions[0][0], quickActions[quickActions.length - 1][0]];
-    }, [quickActions]);
+      const isPotLimit = "PotLimit" in table.config.game_type ||
+        "PotLimitOmaha4" in table.config.game_type ||
+        "PotLimitOmaha5" in table.config.game_type;
+
+      if (!user?.data || !table || !tableUser) return [0n, 0n];
+
+      const currentBet = user.data.current_total_bet;
+      const callValue = table.highest_bet;
+      const minIncrement = table.big_blind || 1n;
+
+      let calculatedMax: bigint;
+      if (isPotLimit) {
+        calculatedMax = livePot;
+      } else {
+        calculatedMax = currentBet + tableUser.balance;
+      }
+
+      let calculatedMin: bigint;
+      if (isPotLimit) {
+        const minFromCall = callValue + minIncrement;
+        const minFromCurrent = currentBet + 1n;
+        calculatedMin = minFromCall > minFromCurrent ? minFromCall : minFromCurrent;
+        if (calculatedMin > calculatedMax) calculatedMin = calculatedMax;
+      } else {
+        calculatedMin = callValue + minIncrement;
+      }
+
+      if (raiseActions.length > 0) {
+        const actionMin = raiseActions[0][0];
+        const actionMax = raiseActions[raiseActions.length - 1][0];
+        const finalMin = actionMin > calculatedMin ? actionMin : calculatedMin;
+        const finalMax = actionMax < calculatedMax ? actionMax : calculatedMax;
+        if (finalMin > finalMax) return [finalMax, finalMax];
+        return [finalMin, finalMax];
+      }
+
+      if (calculatedMin > calculatedMax) return [calculatedMax, calculatedMax];
+      return [calculatedMin, calculatedMax];
+    }, [raiseActions, table, user, tableUser, livePot]);
 
     useEffect(() => {
       setRaiseTo((v) =>
@@ -304,11 +385,17 @@ export const ProvideHUDBettingContext = memo<{ children: ReactNode }>(
         };
       }
 
-      if (quickActions.length > 1) {
+      const isPotLimit = "PotLimit" in table.config.game_type ||
+        "PotLimitOmaha4" in table.config.game_type ||
+        "PotLimitOmaha5" in table.config.game_type;
+
+      // For pot limit: always show raise controls on your turn
+      // For others: show when we have any raise actions
+      if ((isPotLimit && isUserTurn && user?.data && tableUser) || (!isPotLimit && raiseActions.length > 0)) {
         v.raise = {
           min,
           max,
-          quickActions,
+          quickActions: raiseActions.length > 0 ? raiseActions : quickActions,
           value: raiseTo,
           change: setRaiseTo,
           showInlineInput,

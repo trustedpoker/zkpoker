@@ -97,6 +97,8 @@ export const IsSameGameType = (a?: GameType, b?: GameType) => {
 
   if ("NoLimit" in a) return "NoLimit" in b && a.NoLimit === b.NoLimit;
   if ("PotLimit" in a) return "PotLimit" in b && a.PotLimit === b.PotLimit;
+  if ("PotLimitOmaha4" in a) return "PotLimitOmaha4" in b && a.PotLimitOmaha4 === b.PotLimitOmaha4;
+  if ("PotLimitOmaha5" in a) return "PotLimitOmaha5" in b && a.PotLimitOmaha5 === b.PotLimitOmaha5;
   if ("FixedLimit" in a)
     return (
       "FixedLimit" in b &&

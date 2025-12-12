@@ -1,7 +1,8 @@
 import { memo } from 'react';
 
-import { CurrencyInputComponent } from '@zk-game-dao/currency';
+import { CurrencyInputComponent, useCurrencyManagerMeta } from '@zk-game-dao/currency';
 import { WeirdKnobComponent } from '@zk-game-dao/ui';
+import { TokenAmountToString } from '@lib/utils/token-amount-conversion';
 
 import { useTableUIContext } from '../../context/table-ui.context';
 import { useTable } from '../../context/table.context';
@@ -12,6 +13,11 @@ export const TurnButtonsComponent = memo(() => {
   const { raise, call, check, fold, allIn } = useHUDBetting();
   const { orientation } = useTableUIContext();
   const { currencyType: currency } = useTable();
+  const meta = useCurrencyManagerMeta(currency);
+  const rangeLabel =
+    raise && raise.min !== undefined && raise.max !== undefined
+      ? `${TokenAmountToString(raise.min, meta)} ~ ${TokenAmountToString(raise.max, meta)}`
+      : undefined;
 
   if (raise?.showInlineInput)
     return (
@@ -29,6 +35,7 @@ export const TurnButtonsComponent = memo(() => {
           hideMaxQuickAction
           hideMinQuickAction
         />
+        {rangeLabel && <div className="text-xs text-white/70">{rangeLabel}</div>}
         <WeirdKnobComponent variant="black" {...raise.cta}>
           Raise
         </WeirdKnobComponent>
@@ -99,6 +106,7 @@ export const TurnButtonsComponent = memo(() => {
                 hideMaxQuickAction
                 hideMinQuickAction
               />
+              {rangeLabel && <div className="text-xs text-white/70">{rangeLabel}</div>}
               <WeirdKnobComponent variant="black" {...raise.cta}>
                 Raise
               </WeirdKnobComponent>
