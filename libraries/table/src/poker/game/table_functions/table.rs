@@ -479,10 +479,17 @@ impl Table {
                 .map_err(|e| trace_err!(e, "All in failed in raise."))?;
             is_user_all_in = true;
         } else {
+            let is_opening_bet = self.highest_bet == 0;
             let player_action = match bet_type {
                 BetType::BigBlind => PlayerAction::Raised(amount),
                 BetType::SmallBlind => PlayerAction::Raised(amount),
-                BetType::Raised(_) => PlayerAction::Raised(amount),
+                BetType::Raised(_) => {
+                    if is_opening_bet {
+                        PlayerAction::Bet(amount)
+                    } else {
+                        PlayerAction::Raised(amount)
+                    }
+                },
                 _ => unreachable!(),
             };
 

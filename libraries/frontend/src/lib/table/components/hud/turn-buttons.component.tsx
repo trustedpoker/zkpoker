@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 
 import { CurrencyInputComponent, useCurrencyManagerMeta } from '@zk-game-dao/currency';
 import { WeirdKnobComponent } from '@zk-game-dao/ui';
@@ -14,11 +14,22 @@ export const TurnButtonsComponent = memo(() => {
   const { orientation } = useTableUIContext();
   const { currencyType: currency } = useTable();
   const meta = useCurrencyManagerMeta(currency);
+  const [valueJustChanged, setValueJustChanged] = useState(false);
+  
   console.log(raise?.min, raise?.max, "raise min max");
   const rangeLabel =
     raise && raise.min !== undefined && raise.max !== undefined
       ? `${TokenAmountToString(raise.min, meta)} ~ ${TokenAmountToString(raise.max, meta)}`
       : undefined;
+
+  // Track when raise value changes to trigger pulse animation
+  useEffect(() => {
+    if (raise?.value) {
+      setValueJustChanged(true);
+      const timer = setTimeout(() => setValueJustChanged(false), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [raise?.value]);
 
   if (raise?.showInlineInput)
     return (
@@ -37,7 +48,11 @@ export const TurnButtonsComponent = memo(() => {
           hideMinQuickAction
         />
         {rangeLabel && <div className="text-xs text-white/70">{rangeLabel}</div>}
-        <WeirdKnobComponent variant="black" {...raise.cta}>
+        <WeirdKnobComponent 
+          variant="black" 
+          {...raise.cta}
+          {...(valueJustChanged ? { style: { animation: "pulse 0.6s" } } : {})}
+        >
           {raise.actionLabel}
         </WeirdKnobComponent>
       </div>
@@ -108,7 +123,11 @@ export const TurnButtonsComponent = memo(() => {
                 hideMinQuickAction
               />
               {rangeLabel && <div className="text-xs text-white/70">{rangeLabel}</div>}
-              <WeirdKnobComponent variant="black" {...raise.cta}>
+              <WeirdKnobComponent 
+                variant="black" 
+                {...raise.cta}
+                {...(valueJustChanged ? { style: { animation: "pulse 0.6s" } } : {})}
+              >
                 {raise.actionLabel}
               </WeirdKnobComponent>
             </>

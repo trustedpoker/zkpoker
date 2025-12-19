@@ -201,7 +201,14 @@ impl Table {
                         return Ok(false);
                     }
 
-                    if let PlayerAction::Raised(amount) = user_table_data.player_action {
+                    // Check if player action is Bet or Raised (both indicate they made a betting action)
+                    let action_amount = match user_table_data.player_action {
+                        PlayerAction::Bet(amount) => Some(amount),
+                        PlayerAction::Raised(amount) => Some(amount),
+                        _ => None,
+                    };
+                    
+                    if let Some(amount) = action_amount {
                         if amount == highest_bet
                             && self.big_blind_user_principal == *user_principal
                             && self.deal_stage == DealStage::Flop

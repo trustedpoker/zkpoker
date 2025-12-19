@@ -56,6 +56,8 @@ pub enum PlayerAction {
     Checked,
     /// Matches the current bet.
     Called,
+    /// Opens betting (first bet of the street)
+    Bet(u64),
     /// Raises the bet
     Raised(u64),
     /// Bets the remaining balance.

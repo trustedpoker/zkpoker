@@ -61,7 +61,8 @@ export const HUDComponent = memo(() => {
                   ) && (
                       <HUDQuickActionsComponent
                         quickActions={raise.quickActions}
-                        mutate={raise.cta.mutateExplicit}
+                        onChange={raise.change}
+                        currentValue={raise.value}
                       />
                     )}
                 </AnimatePresence>

@@ -32,6 +32,11 @@ const PlayerActionComponent = memo<{ action: PlayerAction; onClose(): void }>(
         return { label: "Checked", cls: "text-black bg-neutral-200" };
       if ("Called" in action)
         return { label: "Called", cls: "text-white bg-orange-500" };
+      if ("Bet" in action)
+        return {
+          label: <>Bet <CurrencyComponent currencyType={currency} currencyValue={action.Bet} /></>,
+          cls: "text-white bg-black",
+        };
       if ("Raised" in action)
         return {
           label: <>Raised to <CurrencyComponent currencyType={currency} currencyValue={action.Raised} /></>,
@@ -134,7 +139,7 @@ export const PlayerTag = memo<PlayerTagProps>(
     const potCls = useMemo(() => {
       if (animatePots || !playerAction) return;
       if ("Folded" in playerAction) return "bg-red-500  text-white";
-      if ("AllIn" in playerAction || "Raised" in playerAction)
+      if ("AllIn" in playerAction || "Bet" in playerAction || "Raised" in playerAction)
         return "bg-black text-white";
       if ("Called" in playerAction) return "bg-orange-500  text-white";
       if ("Checked" in playerAction) return "bg-neutral-200 text-black";
@@ -145,6 +150,7 @@ export const PlayerTag = memo<PlayerTagProps>(
       if (!playerAction) return;
       if ("Folded" in playerAction) return "Folded";
       if ("AllIn" in playerAction) return "All in";
+      if ("Bet" in playerAction) return `Bet`;
       if ("Raised" in playerAction) return `Raised`;
       if ("Called" in playerAction) return "Called";
       if ("Checked" in playerAction) return "Checked";

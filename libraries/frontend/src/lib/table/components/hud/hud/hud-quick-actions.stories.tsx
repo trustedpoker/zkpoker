@@ -7,13 +7,15 @@ const meta: Meta<typeof HUDQuickActionsComponent> = {
   component: HUDQuickActionsComponent,
   args: {
     quickActions: [
-      [0n, 'Call'],
-      [1n, 'Raise'],
-      [2n, 'Fold'],
-      [3n, 'Check'],
-      [4n, 'All In'],
+      [100n, 'Min'],
+      [500n, '1/2 Pot'],
+      [1000n, 'Pot'],
+      [5000n, 'All In'],
     ],
-    mutate: async () => { }
+    onChange: (value: bigint) => { 
+      console.log('Quick action clicked:', value);
+    },
+    currentValue: 100n
   },
 };
 
